@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bookmarks</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --tile: #232323;
+      --tile-hover: #2f2f2f;
+      --accent: #01a801;
+      --text: #cfcfcf;
+      --border: #01a801;
+      --shadow: rgba(1, 168, 1, 0.2);
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem;
+    }
+
+    h1 {
+      text-align: center;
+      color: var(--accent);
+      margin-bottom: 2rem;
+      font-weight: 600;
+    }
+
+    input[type="text"] {
+      display: block;
+      margin: 0 auto 1rem;
+      padding: 0.6rem 1rem;
+      font-size: 1rem;
+      border: 1px solid var(--border);
+      background-color: var(--tile);
+      color: var(--accent);
+      width: 300px;
+      border-radius: 6px;
+      outline: none;
+    }
+
+    #lastChecked {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #888;
+      margin-bottom: 2rem;
+    }
+
+    .group {
+      margin-bottom: 3rem;
+      overflow: hidden;
+      max-height: 1000px;
+      opacity: 1;
+      transition: all 0.4s ease;
+    }
+
+    .group.hidden-group {
+      max-height: 0;
+      opacity: 0;
+      margin: 0;
+      padding: 0;
+      pointer-events: none;
+    }
+
+    .group-header {
+      font-size: 1.3rem;
+      color: var(--accent);
+      margin-bottom: 1rem;
+      text-align: center;
+      cursor: pointer;
+      padding: 0.5rem 0;
+      user-select: none;
+      border-bottom: 1px solid #333;
+      transition: color 0.3s;
+    }
+
+    .group-header:hover {
+      color: #28d428;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 1rem;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding-top: 1rem;
+      width: 100%;
+    }
+
+    .tile-link {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .tile {
+      background-color: var(--tile);
+      padding: 1.2rem;
+      border-radius: 10px;
+      text-align: center;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 8px var(--shadow);
+      transition: transform 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease, opacity 0.4s ease, transform 0.4s ease;
+      display: block;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+    }
+
+    .tile.visible {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .tile.hidden-tile {
+      opacity: 0 !important;
+      transform: translateY(10px);
+      pointer-events: none;
+    }
+
+    .tile:hover {
+      background-color: var(--tile-hover);
+      transform: translateY(-5px);
+      box-shadow: 0 0 10px var(--accent);
+    }
+
+    .tile span {
+      display: inline-block;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--accent);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    .tile.offline {
+      border-color: #ff4040 !important;
+    }
+
+    .tile.offline span {
+      color: #ff4040 !important;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>My Bookmarks</h1>
+  <input type="text" id="search" placeholder="Search bookmarks...">
+  <div id="lastChecked">Last checked: never</div>
+  <div id="bookmarkContainer"></div>
+
+  <script>
+    const bookmarks = {
+      "Tech Links": [
+        { "name": "OpenAI", "url": "https://www.openai.com", "ping": true },
+        { "name": "GitHub", "url": "https://github.com", "ping": true },
+        { "name": "Reddit", "url": "https://www.reddit.com" },
+        { "name": "Stack Overflow", "url": "https://stackoverflow.com" },
+        { "name": "TechCrunch", "url": "https://techcrunch.com", "ping": true }
+      ],
+      "Learning Resources": [
+        { "name": "Khan Academy", "url": "https://www.khanacademy.org" },
+        { "name": "Coursera", "url": "https://www.coursera.org", "ping": true },
+        { "name": "edX", "url": "https://www.edx.org" },
+        { "name": "Codecademy", "url": "https://www.codecademy.com", "ping": true }
+      ]
+    };
+
+    const container = document.getElementById('bookmarkContainer');
+    const lastChecked = document.getElementById('lastChecked');
+    const groupElements = [];
+
+    function updateLastChecked() {
+      const now = new Date();
+      lastChecked.textContent = 'Last checked: ' + now.toLocaleString();
+    }
+
+    function pingTile(tile, url) {
+      const img = new Image();
+      img.onload = () => tile.classList.remove('offline');
+      img.onerror = () => tile.classList.add('offline');
+      img.src = `${url}/favicon.ico?ping=${Date.now()}`;
+    }
+
+    function runPings() {
+      document.querySelectorAll('[data-ping="true"]').forEach(tile => {
+        pingTile(tile, tile.dataset.url);
+      });
+      updateLastChecked();
+    }
+
+    Object.entries(bookmarks).forEach(([category, links]) => {
+      const group = document.createElement('div');
+      group.className = 'group';
+
+      const header = document.createElement('div');
+      header.className = 'group-header';
+      header.textContent = category;
+
+      const grid = document.createElement('div');
+      grid.className = 'grid';
+
+      links.forEach(({ name, url, ping }) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.className = 'tile-link';
+
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        tile.dataset.name = name.toLowerCase();
+        tile.dataset.category = category.toLowerCase();
+        tile.dataset.url = url;
+        if (ping) tile.dataset.ping = "true";
+        tile.innerHTML = `<span title="${name}">${name}</span>`;
+
+        link.appendChild(tile);
+        grid.appendChild(link);
+      });
+
+      header.addEventListener('click', () => {
+        grid.classList.toggle('hidden');
+      });
+
+      group.appendChild(header);
+      group.appendChild(grid);
+      container.appendChild(group);
+
+      groupElements.push({ group, grid });
+    });
+
+    function animateVisibleTiles(durationPerGroup = 600) {
+      groupElements.forEach(({ grid }) => {
+        const visibleLinks = Array.from(grid.children).filter(link => link.style.display !== 'none');
+        const tileCount = visibleLinks.length;
+
+        visibleLinks.forEach((link, i) => {
+          const tile = link.querySelector('.tile');
+          tile.classList.remove('visible', 'hidden-tile');
+
+          const delay = (i / (tileCount - 1 || 1)) * durationPerGroup;
+          setTimeout(() => tile.classList.add('visible'), delay);
+        });
+      });
+    }
+
+    document.getElementById('search').addEventListener('input', () => {
+      const query = document.getElementById('search').value.toLowerCase();
+
+      groupElements.forEach(({ group, grid }) => {
+        let visibleCount = 0;
+
+        Array.from(grid.children).forEach(link => {
+          const tile = link.querySelector('.tile');
+          const matches = tile.dataset.name.includes(query) || tile.dataset.category.includes(query);
+
+          if (matches) {
+            link.style.display = 'block';
+            visibleCount++;
+          } else {
+            tile.classList.remove('visible');
+            tile.classList.add('hidden-tile');
+            link.style.display = 'none';
+          }
+        });
+
+        if (visibleCount > 0) {
+          group.classList.remove('hidden-group');
+        } else {
+          group.classList.add('hidden-group');
+        }
+      });
+
+      animateVisibleTiles();
+    });
+
+    window.addEventListener('load', () => {
+      animateVisibleTiles();
+      runPings();
+      setInterval(runPings, 10000);
+    });
+  </script>
+</body>
+
+</html>
