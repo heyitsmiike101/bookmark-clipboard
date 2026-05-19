@@ -228,7 +228,3 @@ MIT — Feel free to use, modify, and distribute.
 ## Contributing
 
 Issues and pull requests are welcome!
-
----
-
-**Made with ❤️ for local automation**
