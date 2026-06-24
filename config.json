@@ -1,0 +1,10 @@
+{
+  "bookmarks": {
+    "Example Category": [
+      { "name": "Example Service", "url": "http://localhost:8080", "ping": true },
+      { "name": "Documentation", "url": "https://example.com/docs" },
+      { "name": "Server IP", "info": "192.168.1.10" }
+    ]
+  },
+  "clips": []
+}
