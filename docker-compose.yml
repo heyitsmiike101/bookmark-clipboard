@@ -9,5 +9,5 @@ services:
     volumes:
       # Persist bookmarks (config.json) and uploaded files on the host.
       # Change the host path on the left if you want a different location.
-      - /home/user/bookmark-clipboard:/data
+      - /home/user/Docker/bookmark-clipboard:/data
     restart: unless-stopped

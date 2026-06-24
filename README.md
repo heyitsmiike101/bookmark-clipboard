@@ -36,7 +36,7 @@ docker compose up -d
 Then open **http://localhost:3000** — or `http://<host-ip>:3000` from another device on your network.
 
 That's it. On first run the container seeds a starter `config.json` and stores everything on the
-host at **`/home/user/bookmark-clipboard`** (see [Data & persistence](#data--persistence)).
+host at **`/home/user/Docker/bookmark-clipboard`** (see [Data & persistence](#data--persistence)).
 
 ### Updating
 
@@ -60,7 +60,7 @@ docker compose down          # stop and remove the container (data is kept on th
 All state lives in **one host directory**, bind-mounted into the container at `/data`:
 
 ```
-/home/user/bookmark-clipboard/
+/home/user/Docker/bookmark-clipboard/
 ├── config.json      # bookmarks + clips
 └── attachments/     # uploaded files
 ```
@@ -69,13 +69,13 @@ This path is set in [`docker-compose.yml`](docker-compose.yml):
 
 ```yaml
     volumes:
-      - /home/user/bookmark-clipboard:/data
+      - /home/user/Docker/bookmark-clipboard:/data
 ```
 
 - **Change the location** by editing the left side of that line (the right side, `:/data`, must stay).
 - Docker creates the directory automatically on first run if it doesn't exist.
 - If the container can't write to it, make sure the directory is writable (e.g. `chmod 777
-  /home/user/bookmark-clipboard`, or `chown` it to the user the container runs as).
+  /home/user/Docker/bookmark-clipboard`, or `chown` it to the user the container runs as).
 
 > Prefer a Docker-managed named volume instead of a host path? Replace the line above with
 > `- bookmark-data:/data` and add a top-level `volumes:\n  bookmark-data:` block.
