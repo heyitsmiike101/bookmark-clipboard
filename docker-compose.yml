@@ -1,0 +1,15 @@
+services:
+  bookmark-dashboard:
+    build: .
+    # Or pull a prebuilt image instead of building:
+    # image: ghcr.io/yourusername/bookmark-dashboard:latest
+    container_name: bookmark-dashboard
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist bookmarks (config.json) and uploaded files across restarts.
+      - bookmark-data:/data
+    restart: unless-stopped
+
+volumes:
+  bookmark-data:

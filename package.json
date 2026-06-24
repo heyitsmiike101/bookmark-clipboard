@@ -1,12 +1,13 @@
 {
   "name": "bookmark-dashboard",
-  "version": "1.0.0",
-  "description": "Local bookmark dashboard with clipboard sharing",
+  "version": "2.0.0",
+  "description": "Self-hosted bookmark dashboard with clipboard & file sharing. Pure Node.js, zero dependencies, runs in Docker.",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {
-    "express": "^4.18.2"
-  }
+  "license": "MIT"
 }

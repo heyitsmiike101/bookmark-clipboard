@@ -1490,7 +1490,7 @@
         .then(r => r.json()).then(renderHealth)
         .catch(() => {
           document.getElementById('help-content').innerHTML =
-            '<p style="color:var(--danger);">Could not reach api.php — is PHP enabled for this site?</p>';
+            '<p style="color:var(--danger);">Could not reach the server — is the container running?</p>';
         });
     }
 
@@ -1655,31 +1655,24 @@
     }
 
     function renderHealth(h) {
-      const limitSmall = s => {
-        if (!s || s === '0') return false;
-        const n = parseInt(s), u = s.slice(-1).toUpperCase();
-        const mb = u === 'G' ? n * 1024 : u === 'M' ? n : (u === 'K' ? n / 1024 : n / 1048576);
-        return mb < 512;
-      };
+      const dataDir = h.data_dir || '/data';
       let html = '';
       html += '<div class="health-section-title">Server</div>';
-      html += healthRow(true, 'PHP ' + h.php_version);
+      html += healthRow(true, h.runtime || 'Node.js');
       html += '<div class="health-section-title">Files</div>';
-      html += healthRow(h.config_exists,        'config.json — exists',        'Create config.json in your web root: {"bookmarks":{},"clips":[]}');
-      html += healthRow(h.config_readable,      'config.json — readable',      'chmod 644 config.json');
-      html += healthRow(h.config_writable,      'config.json — writable',      'chmod 664 config.json  (+ chown to your web server user)');
-      html += healthRow(h.attachments_exists,   'attachments/ — exists',       'mkdir attachments');
-      html += healthRow(h.attachments_readable, 'attachments/ — readable',     'chmod 755 attachments');
-      html += healthRow(h.attachments_writable, 'attachments/ — writable',     'chmod 775 attachments  (+ chown to your web server user)');
+      html += healthRow(h.config_exists,        'config.json — exists',        'A fresh config is seeded automatically on first run.');
+      html += healthRow(h.config_readable,      'config.json — readable',      'Check permissions on the ' + dataDir + ' volume.');
+      html += healthRow(h.config_writable,      'config.json — writable',      'Ensure the ' + dataDir + ' volume is writable by the container.');
+      html += healthRow(h.attachments_exists,   'attachments/ — exists',       'Created automatically inside ' + dataDir + '.');
+      html += healthRow(h.attachments_readable, 'attachments/ — readable',     'Check permissions on the ' + dataDir + ' volume.');
+      html += healthRow(h.attachments_writable, 'attachments/ — writable',     'Ensure the ' + dataDir + ' volume is writable by the container.');
       html += '<div class="health-section-title">Upload Limits</div>';
-      html += healthRow(!limitSmall(h.upload_max_filesize), 'upload_max_filesize: ' + h.upload_max_filesize, 'Set upload_max_filesize = 10240M in php.ini or user.ini');
-      html += healthRow(!limitSmall(h.post_max_size),       'post_max_size: ' + h.post_max_size,             'Set post_max_size = 0 in php.ini or user.ini  (0 = unlimited)');
-      html += healthRow(h.max_execution_time === '0' || parseInt(h.max_execution_time) >= 120,
-        'max_execution_time: ' + h.max_execution_time + 's', 'Set max_execution_time = 0 in php.ini or user.ini');
+      html += healthRow(true, 'Max upload size: ' + (h.upload_limit || 'unlimited'));
+      html += healthRow(true, 'No minimum file size — empty files are allowed');
       html += '<div class="health-section-title">Dependencies</div>';
-      html += healthRow(true, 'PHP 7.4+ with no additional extensions required');
-      html += healthRow(true, 'Web server with PHP support (Apache, nginx, Caddy, IIS, etc.)');
-      html += healthRow(true, 'Write access to web directory for config.json and attachments/');
+      html += healthRow(true, 'Node.js 18+ — no extra packages required (built-ins only)');
+      html += healthRow(true, 'Runs as a self-contained Docker container');
+      html += healthRow(true, 'A persistent ' + dataDir + ' volume for config.json and attachments/');
       document.getElementById('help-content').innerHTML = html;
     }
 

@@ -1,55 +1,487 @@
-const express = require('express');
+'use strict';
+
+/*
+ * Bookmark Dashboard — Node.js backend
+ *
+ * Drop-in replacement for the old api.php. The frontend still calls
+ * `api.php?action=...`, so every route below is mounted under /api.php to
+ * keep index.html unchanged.
+ *
+ * Zero external dependencies (built-in modules only) so the Docker image
+ * builds and runs without any network access or `npm install`.
+ *
+ * Data lives under DATA_DIR (default ./data, /data in the container):
+ *   DATA_DIR/config.json     bookmarks + clips
+ *   DATA_DIR/attachments/    uploaded files
+ */
+
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { URL } = require('url');
 
-const app = express();
-const PORT = 3000;
-const CONFIG_FILE = path.join(__dirname, 'config.json');
+const PORT = parseInt(process.env.PORT, 10) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+const APP_DIR = __dirname;
+const DATA_DIR = process.env.DATA_DIR || path.join(APP_DIR, 'data');
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+const ATTACH_DIR = path.join(DATA_DIR, 'attachments');
+const SEED_CONFIG = path.join(APP_DIR, 'config.json');
 
-app.use(express.json());
-app.use(express.static(__dirname));
+// ── Bootstrap data directory ──────────────────────────────────────────────
+fs.mkdirSync(ATTACH_DIR, { recursive: true });
+if (!fs.existsSync(CONFIG_FILE)) {
+  if (fs.existsSync(SEED_CONFIG)) {
+    fs.copyFileSync(SEED_CONFIG, CONFIG_FILE);
+  } else {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ bookmarks: {}, clips: [] }, null, 2));
+  }
+}
 
+// ── Config helpers ──────────────────────────────────────────────────────────
 function readConfig() {
-  return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  try {
+    const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    if (!data.bookmarks) data.bookmarks = {};
+    if (!Array.isArray(data.clips)) data.clips = [];
+    return data;
+  } catch (e) {
+    return { bookmarks: {}, clips: [] };
+  }
 }
 
 function writeConfig(data) {
+  data.version = (data.version || 0) + 1;
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
 }
 
-app.get('/api/config', (req, res) => {
-  res.json(readConfig());
-});
+function idsMatch(a, b) {
+  return String(a) === String(b);
+}
 
-app.post('/api/bookmarks', (req, res) => {
+function newId() {
+  return String(Date.now());
+}
+
+// ── HTTP helpers ──────────────────────────────────────────────────────────
+function sendJson(res, status, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  });
+  res.end(body);
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+async function readJsonBody(req) {
+  const buf = await readBody(req);
+  if (!buf.length) return null;
+  try {
+    return JSON.parse(buf.toString('utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── Static file serving ─────────────────────────────────────────────────────
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+};
+
+function serveStatic(req, res, pathname) {
+  let rel = decodeURIComponent(pathname);
+  if (rel === '/' || rel === '') rel = '/index.html';
+  // Resolve safely inside APP_DIR to prevent path traversal.
+  const filePath = path.normalize(path.join(APP_DIR, rel));
+  if (!filePath.startsWith(APP_DIR)) {
+    res.writeHead(403); res.end('Forbidden'); return;
+  }
+  fs.stat(filePath, (err, stat) => {
+    if (err || !stat.isFile()) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+      'Content-Length': stat.size,
+    });
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
+
+// ── Streaming multipart/form-data parser ────────────────────────────────────
+// Parses a single-file upload (frontend sends one file plus a `todayOnly`
+// field per request). Files are streamed straight to disk so uploads of any
+// size — including 0-byte files — are accepted without buffering in memory.
+function parseMultipart(req, boundary) {
+  return new Promise((resolve, reject) => {
+    const boundaryBuf = Buffer.from('--' + boundary);
+    let buffer = Buffer.alloc(0);
+    const fields = {};
+    let file = null; // { fieldName, filename, contentType, stream, size, tmpPath }
+    let inFilePart = false;
+    let finished = false;
+    let pending = 0; // outstanding write-stream finishes
+
+    function maybeDone() {
+      if (finished && pending === 0) {
+        resolve({ fields, file });
+      }
+    }
+
+    function startPart(headerStr) {
+      const dispo = /name="([^"]*)"(?:;\s*filename="([^"]*)")?/i.exec(headerStr);
+      const ctMatch = /content-type:\s*([^\r\n]+)/i.exec(headerStr);
+      const fieldName = dispo ? dispo[1] : '';
+      const filename = dispo && dispo[2] !== undefined ? dispo[2] : null;
+      if (filename !== null) {
+        // File part: stream to a temp file.
+        const tmpPath = path.join(ATTACH_DIR, '.upload_' + crypto.randomBytes(8).toString('hex') + '.tmp');
+        file = {
+          fieldName,
+          filename,
+          contentType: ctMatch ? ctMatch[1].trim() : 'application/octet-stream',
+          size: 0,
+          tmpPath,
+          stream: fs.createWriteStream(tmpPath),
+        };
+        inFilePart = true;
+      } else {
+        // Regular field: collect value in memory.
+        inFilePart = false;
+        currentField = { name: fieldName, value: Buffer.alloc(0) };
+      }
+    }
+
+    let currentField = null;
+
+    function appendPartData(chunk) {
+      if (inFilePart && file) {
+        file.size += chunk.length;
+        pending++;
+        const ok = file.stream.write(chunk, () => { pending--; maybeDone(); });
+        if (!ok) {
+          // Backpressure: pause until drain.
+          req.pause();
+          file.stream.once('drain', () => req.resume());
+        }
+      } else if (currentField) {
+        currentField.value = Buffer.concat([currentField.value, chunk]);
+      }
+    }
+
+    function endPart() {
+      if (inFilePart && file && file.stream) {
+        pending++;
+        file.stream.end(() => { pending--; maybeDone(); });
+      } else if (currentField) {
+        fields[currentField.name] = currentField.value.toString('utf8');
+        currentField = null;
+      }
+      inFilePart = false;
+    }
+
+    let state = 'preamble'; // preamble -> headers -> data
+
+    req.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      let keepGoing = true;
+      while (keepGoing) {
+        keepGoing = false;
+        if (state === 'preamble' || state === 'data') {
+          // Look for the next boundary.
+          const idx = buffer.indexOf(boundaryBuf);
+          if (idx === -1) {
+            if (state === 'data') {
+              // Flush all but a tail that might contain a partial boundary.
+              const safe = buffer.length - boundaryBuf.length;
+              if (safe > 0) {
+                appendPartData(buffer.slice(0, safe));
+                buffer = buffer.slice(safe);
+              }
+            }
+            break;
+          }
+          if (state === 'data') {
+            // Emit data up to the boundary (minus the preceding CRLF).
+            let end = idx;
+            if (end >= 2 && buffer[end - 2] === 0x0d && buffer[end - 1] === 0x0a) end -= 2;
+            appendPartData(buffer.slice(0, end));
+            endPart();
+          }
+          // Advance past the boundary marker.
+          let after = idx + boundaryBuf.length;
+          // Closing boundary "--boundary--"
+          if (buffer.slice(after, after + 2).toString() === '--') {
+            finished = true;
+            buffer = Buffer.alloc(0);
+            break;
+          }
+          // Skip trailing CRLF after boundary.
+          if (buffer.slice(after, after + 2).toString() === '\r\n') after += 2;
+          buffer = buffer.slice(after);
+          state = 'headers';
+          keepGoing = true;
+        } else if (state === 'headers') {
+          const sep = buffer.indexOf('\r\n\r\n');
+          if (sep === -1) break; // need more data
+          const headerStr = buffer.slice(0, sep).toString('utf8');
+          buffer = buffer.slice(sep + 4);
+          startPart(headerStr);
+          state = 'data';
+          keepGoing = true;
+        }
+      }
+    });
+
+    req.on('end', () => {
+      finished = true;
+      maybeDone();
+    });
+    req.on('error', reject);
+  });
+}
+
+function sanitizeName(name) {
+  let safe = String(name).replace(/[^a-zA-Z0-9._-]/g, '_');
+  return safe.slice(0, 180);
+}
+
+// ── Route handlers ──────────────────────────────────────────────────────────
+async function handleApi(req, res, urlObj) {
+  const method = req.method;
+  const action = urlObj.searchParams.get('action') || '';
+
+  if (method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    });
+    res.end();
+    return;
+  }
+
+  // File download — stream before any JSON headers.
+  if (method === 'GET' && action === 'download') {
+    const filename = path.basename(urlObj.searchParams.get('filename') || '');
+    const filepath = path.join(ATTACH_DIR, filename);
+    if (!filename || !fs.existsSync(filepath)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Not found');
+      return;
+    }
+    const original = urlObj.searchParams.get('original') || filename;
+    const stat = fs.statSync(filepath);
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Disposition': 'attachment; filename="' + path.basename(original).replace(/"/g, '\\"') + '"',
+      'Content-Length': stat.size,
+    });
+    fs.createReadStream(filepath).pipe(res);
+    return;
+  }
+
   const config = readConfig();
-  config.bookmarks = req.body;
-  writeConfig(config);
-  res.json({ ok: true });
+
+  if (method === 'GET' && action === 'health') {
+    const stat = (p) => {
+      try { fs.accessSync(p, fs.constants.R_OK); } catch (e) { return false; }
+      return true;
+    };
+    const writable = (p) => {
+      try { fs.accessSync(p, fs.constants.W_OK); } catch (e) { return false; }
+      return true;
+    };
+    sendJson(res, 200, {
+      runtime: 'Node ' + process.version,
+      config_exists: fs.existsSync(CONFIG_FILE),
+      config_readable: stat(CONFIG_FILE),
+      config_writable: writable(CONFIG_FILE),
+      attachments_exists: fs.existsSync(ATTACH_DIR),
+      attachments_readable: stat(ATTACH_DIR),
+      attachments_writable: writable(ATTACH_DIR),
+      upload_limit: 'unlimited',
+      data_dir: DATA_DIR,
+    });
+    return;
+  }
+
+  if (method === 'GET' && action === 'version') {
+    sendJson(res, 200, { version: config.version || 0 });
+    return;
+  }
+
+  if (method === 'GET' && action === 'config') {
+    sendJson(res, 200, config);
+    return;
+  }
+
+  if (method === 'POST' && action === 'bookmarks') {
+    const body = await readJsonBody(req);
+    if (body === null || typeof body !== 'object') {
+      sendJson(res, 400, { error: 'Invalid data' });
+      return;
+    }
+    config.bookmarks = body;
+    writeConfig(config);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (method === 'POST' && action === 'clip') {
+    const body = await readJsonBody(req) || {};
+    const text = (body.text || '').trim();
+    const todayOnly = !!body.todayOnly;
+    if (!text) { sendJson(res, 400, { error: 'No text provided' }); return; }
+    const clip = {
+      id: newId(),
+      type: 'text',
+      text,
+      todayOnly,
+      createdAt: new Date().toISOString(),
+    };
+    config.clips.unshift(clip);
+    writeConfig(config);
+    sendJson(res, 200, clip);
+    return;
+  }
+
+  if (method === 'POST' && action === 'upload') {
+    const ct = req.headers['content-type'] || '';
+    const m = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ct);
+    if (!m) { sendJson(res, 400, { error: 'No multipart boundary' }); return; }
+    const boundary = m[1] || m[2];
+    let parsed;
+    try {
+      parsed = await parseMultipart(req, boundary);
+    } catch (e) {
+      sendJson(res, 500, { error: 'Upload failed: ' + e.message });
+      return;
+    }
+    if (!parsed.file) { sendJson(res, 400, { error: 'No file received' }); return; }
+    const todayOnly = (parsed.fields.todayOnly || '0') === '1';
+    const id = newId();
+    const safeOriginal = sanitizeName(parsed.file.filename || 'file');
+    const safeName = id + '_' + safeOriginal;
+    const dest = path.join(ATTACH_DIR, safeName);
+    try {
+      fs.renameSync(parsed.file.tmpPath, dest);
+    } catch (e) {
+      try { fs.unlinkSync(parsed.file.tmpPath); } catch (_) {}
+      sendJson(res, 500, { error: 'Failed to save file' });
+      return;
+    }
+    const clip = {
+      id,
+      type: 'file',
+      filename: safeName,
+      originalName: parsed.file.filename,
+      size: parsed.file.size,
+      todayOnly,
+      createdAt: new Date().toISOString(),
+    };
+    const fresh = readConfig();
+    fresh.clips.unshift(clip);
+    writeConfig(fresh);
+    sendJson(res, 200, clip);
+    return;
+  }
+
+  if (method === 'POST' && action === 'update-clip') {
+    const id = urlObj.searchParams.get('id') || '';
+    const body = await readJsonBody(req) || {};
+    const text = body.text;
+    if (!id || text === undefined || text === null) {
+      sendJson(res, 400, { error: 'Missing id or text' });
+      return;
+    }
+    let found = false;
+    for (const clip of config.clips) {
+      if (idsMatch(clip.id, id) && clip.type === 'text') {
+        clip.text = text;
+        found = true;
+        break;
+      }
+    }
+    if (!found) { sendJson(res, 404, { error: 'Clip not found' }); return; }
+    writeConfig(config);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (method === 'DELETE' && action === 'clip') {
+    const id = urlObj.searchParams.get('id') || '';
+    const filename = urlObj.searchParams.get('filename') || '';
+    if (filename) {
+      const safe = path.basename(filename);
+      const p = path.join(ATTACH_DIR, safe);
+      if (fs.existsSync(p)) { try { fs.unlinkSync(p); } catch (_) {} }
+    }
+    config.clips = config.clips.filter((c) => !idsMatch(c.id, id));
+    writeConfig(config);
+    sendJson(res, 200, { ok: true });
+    return;
+  }
+
+  sendJson(res, 404, { error: 'Unknown action' });
+}
+
+// ── Server ──────────────────────────────────────────────────────────────────
+const server = http.createServer((req, res) => {
+  let urlObj;
+  try {
+    urlObj = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
+  } catch (e) {
+    res.writeHead(400); res.end('Bad request'); return;
+  }
+  const pathname = urlObj.pathname;
+
+  if (pathname === '/api.php' || pathname === '/api') {
+    handleApi(req, res, urlObj).catch((e) => {
+      if (!res.headersSent) sendJson(res, 500, { error: 'Server error: ' + e.message });
+    });
+    return;
+  }
+
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    serveStatic(req, res, pathname);
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not found');
 });
 
-app.post('/api/clips', (req, res) => {
-  const { text } = req.body;
-  if (!text || !text.trim()) return res.status(400).json({ error: 'No text provided' });
-  const config = readConfig();
-  const clip = {
-    id: Date.now().toString(),
-    text: text.trim(),
-    createdAt: new Date().toISOString()
-  };
-  config.clips.unshift(clip);
-  writeConfig(config);
-  res.json(clip);
-});
+// No socket timeout so very large uploads aren't cut off.
+server.requestTimeout = 0;
+server.headersTimeout = 0;
 
-app.delete('/api/clips/:id', (req, res) => {
-  const config = readConfig();
-  config.clips = config.clips.filter(c => c.id !== req.params.id);
-  writeConfig(config);
-  res.json({ ok: true });
-});
-
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, HOST, () => {
   console.log(`Bookmark Dashboard running at http://localhost:${PORT}`);
-  console.log(`Also accessible on your local network via your machine's IP on port ${PORT}`);
+  console.log(`Network: http://<this-machine-ip>:${PORT}`);
+  console.log(`Data directory: ${DATA_DIR}`);
 });

@@ -1,0 +1,11 @@
+# Runtime data (created when running outside Docker)
+/data/
+/attachments/
+
+# Node
+/node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.log
