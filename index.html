@@ -1201,6 +1201,10 @@
         <h2>Health Check & Help</h2>
         <button class="modal-close" onclick="closeHelp()">✕</button>
       </div>
+      <p style="margin:0 0 0.75rem;font-size:0.9rem;">
+        <a href="docs.html" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">📖 API &amp; Automation Docs →</a>
+        <span style="color:var(--muted);"> &nbsp;— add, remove, reorder &amp; organize bookmarks programmatically (great for AI agents)</span>
+      </p>
       <div id="help-content"><p style="color:var(--muted);font-size:0.9rem;">Checking…</p></div>
     </div>
   </div>
@@ -1965,9 +1969,10 @@
       return div;
     }
 
-    function makeBookmarkRow({ name, url, ping, info }) {
+    function makeBookmarkRow({ id, name, url, ping, info }) {
       const row = document.createElement('div');
       row.className = 'config-bm-row';
+      if (id) row.dataset.id = id;
       const isInfo = info !== undefined;
       row.dataset.type = isInfo ? 'info' : 'url';
 
@@ -2013,8 +2018,11 @@
           const n   = row.querySelector('.bm-name').value.trim();
           const val = row.querySelector('.bm-url').value.trim();
           if (!n || !val) return null;
-          if (row.dataset.type === 'info') return { name: n, info: val };
-          const bm = { name: n, url: val };
+          // Preserve the stable id so API-assigned ids survive UI edits.
+          const bm = row.dataset.id ? { id: row.dataset.id } : {};
+          bm.name = n;
+          if (row.dataset.type === 'info') { bm.info = val; return bm; }
+          bm.url = val;
           if (row.querySelector('.bm-ping').checked) bm.ping = true;
           return bm;
         }).filter(Boolean);

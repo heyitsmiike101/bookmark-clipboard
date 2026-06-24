@@ -64,6 +64,66 @@ function newId() {
   return String(Date.now());
 }
 
+function newBookmarkId() {
+  return 'bm_' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+}
+
+// Ensure every bookmark has a unique stable `id`. Returns whether anything
+// changed so callers can avoid pointless writes (and version bumps).
+function normalizeBookmarks(bookmarks) {
+  if (!bookmarks || typeof bookmarks !== 'object' || Array.isArray(bookmarks)) {
+    return { bookmarks: {}, changed: bookmarks !== undefined && bookmarks !== null };
+  }
+  let changed = false;
+  const seen = new Set();
+  for (const cat of Object.keys(bookmarks)) {
+    if (!Array.isArray(bookmarks[cat])) { bookmarks[cat] = []; changed = true; continue; }
+    for (const bm of bookmarks[cat]) {
+      if (bm && typeof bm === 'object') {
+        if (!bm.id || seen.has(bm.id)) { bm.id = newBookmarkId(); changed = true; }
+        seen.add(bm.id);
+      }
+    }
+  }
+  return { bookmarks, changed };
+}
+
+// Resolve a bookmark from a flexible locator:
+//   { id }                       — preferred, searches all categories
+//   { category, index }          — 0-based position within a category
+//   { category, name }           — first bookmark with that name in a category
+// Returns { category, index } or null.
+function findBookmark(bookmarks, loc) {
+  if (loc.id) {
+    for (const cat of Object.keys(bookmarks)) {
+      const i = (bookmarks[cat] || []).findIndex((b) => b && b.id === loc.id);
+      if (i !== -1) return { category: cat, index: i };
+    }
+    return null;
+  }
+  if (loc.category && Array.isArray(bookmarks[loc.category])) {
+    const list = bookmarks[loc.category];
+    if (loc.index !== undefined && loc.index !== null && loc.index !== '') {
+      const idx = parseInt(loc.index, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < list.length) return { category: loc.category, index: idx };
+      return null;
+    }
+    if (loc.name) {
+      const i = list.findIndex((b) => b && b.name === loc.name);
+      if (i !== -1) return { category: loc.category, index: i };
+    }
+  }
+  return null;
+}
+
+// Clamp an insertion index into [0, len].
+function clampIndex(value, len, dflt) {
+  if (value === undefined || value === null || value === '') return dflt;
+  let idx = parseInt(value, 10);
+  if (isNaN(idx) || idx < 0) return dflt;
+  return Math.min(idx, len);
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────
 function sendJson(res, status, obj) {
   const body = JSON.stringify(obj);
@@ -340,15 +400,199 @@ async function handleApi(req, res, urlObj) {
     return;
   }
 
+  // ── Bookmarks: read ─────────────────────────────────────────────────────
+  if (method === 'GET' && action === 'bookmarks') {
+    sendJson(res, 200, { bookmarks: config.bookmarks, version: config.version || 0 });
+    return;
+  }
+
+  // ── Bookmarks: bulk replace / organize ──────────────────────────────────
   if (method === 'POST' && action === 'bookmarks') {
     const body = await readJsonBody(req);
-    if (body === null || typeof body !== 'object') {
-      sendJson(res, 400, { error: 'Invalid data' });
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      sendJson(res, 400, { error: 'Invalid data — expected a { category: [...] } object' });
       return;
     }
-    config.bookmarks = body;
+    config.bookmarks = normalizeBookmarks(body).bookmarks;
     writeConfig(config);
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, bookmarks: config.bookmarks, version: config.version });
+    return;
+  }
+
+  // ── Bookmarks: add one ──────────────────────────────────────────────────
+  if (method === 'POST' && action === 'add-bookmark') {
+    const body = await readJsonBody(req) || {};
+    const category = String(body.category || '').trim();
+    const name = String(body.name || '').trim();
+    if (!category || !name) { sendJson(res, 400, { error: 'category and name are required' }); return; }
+    const hasInfo = body.info !== undefined && body.info !== null;
+    if (!hasInfo && !body.url) { sendJson(res, 400, { error: 'Provide either a url or an info value' }); return; }
+    const bm = { id: newBookmarkId(), name };
+    if (hasInfo) {
+      bm.info = String(body.info);
+    } else {
+      bm.url = String(body.url);
+      if (body.ping) bm.ping = true;
+    }
+    if (!Array.isArray(config.bookmarks[category])) config.bookmarks[category] = [];
+    const list = config.bookmarks[category];
+    const idx = clampIndex(body.index, list.length, list.length);
+    list.splice(idx, 0, bm);
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, bookmark: bm, category, index: idx });
+    return;
+  }
+
+  // ── Bookmarks: update one ───────────────────────────────────────────────
+  if (method === 'POST' && action === 'update-bookmark') {
+    const body = await readJsonBody(req) || {};
+    const target = findBookmark(config.bookmarks, body);
+    if (!target) { sendJson(res, 404, { error: 'Bookmark not found for the given locator' }); return; }
+    const bm = config.bookmarks[target.category][target.index];
+    const f = (body.fields && typeof body.fields === 'object') ? body.fields : {};
+    if (f.name !== undefined) bm.name = String(f.name);
+    if (f.info !== undefined && f.info !== null) {
+      // Convert to / stay an info tile.
+      bm.info = String(f.info);
+      delete bm.url; delete bm.ping;
+    } else if (f.url !== undefined) {
+      // Convert to / stay a link tile.
+      bm.url = String(f.url);
+      delete bm.info;
+      if (f.ping !== undefined) { if (f.ping) bm.ping = true; else delete bm.ping; }
+    } else if (f.ping !== undefined && bm.url !== undefined) {
+      if (f.ping) bm.ping = true; else delete bm.ping;
+    }
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, bookmark: bm, category: target.category, index: target.index });
+    return;
+  }
+
+  // ── Bookmarks: delete one ───────────────────────────────────────────────
+  if ((method === 'POST' || method === 'DELETE') && action === 'delete-bookmark') {
+    const body = (method === 'POST') ? (await readJsonBody(req) || {}) : {};
+    const loc = {
+      id: body.id || urlObj.searchParams.get('id') || undefined,
+      category: body.category || urlObj.searchParams.get('category') || undefined,
+      name: body.name || urlObj.searchParams.get('name') || undefined,
+      index: body.index !== undefined ? body.index : urlObj.searchParams.get('index'),
+    };
+    const target = findBookmark(config.bookmarks, loc);
+    if (!target) { sendJson(res, 404, { error: 'Bookmark not found for the given locator' }); return; }
+    const [removed] = config.bookmarks[target.category].splice(target.index, 1);
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, removed, category: target.category });
+    return;
+  }
+
+  // ── Bookmarks: move / reorder across or within categories ───────────────
+  if (method === 'POST' && action === 'move-bookmark') {
+    const body = await readJsonBody(req) || {};
+    const target = findBookmark(config.bookmarks, body);
+    if (!target) { sendJson(res, 404, { error: 'Bookmark not found for the given locator' }); return; }
+    const toCategory = String(body.toCategory || target.category).trim() || target.category;
+    const [bm] = config.bookmarks[target.category].splice(target.index, 1);
+    if (!Array.isArray(config.bookmarks[toCategory])) config.bookmarks[toCategory] = [];
+    const dest = config.bookmarks[toCategory];
+    const idx = clampIndex(body.toIndex, dest.length, dest.length);
+    dest.splice(idx, 0, bm);
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, bookmark: bm, fromCategory: target.category, toCategory, toIndex: idx });
+    return;
+  }
+
+  // ── Bookmarks: reorder within a category ────────────────────────────────
+  if (method === 'POST' && action === 'reorder-bookmarks') {
+    const body = await readJsonBody(req) || {};
+    const category = String(body.category || '').trim();
+    if (!Array.isArray(config.bookmarks[category])) { sendJson(res, 404, { error: 'Category not found' }); return; }
+    if (!Array.isArray(body.order)) { sendJson(res, 400, { error: 'order must be an array of ids, names, or indices' }); return; }
+    const list = config.bookmarks[category];
+    const used = new Set();
+    const result = [];
+    for (const key of body.order) {
+      let i = -1;
+      if (typeof key === 'number') {
+        if (key >= 0 && key < list.length && !used.has(key)) i = key;
+      } else {
+        i = list.findIndex((b, idx) => !used.has(idx) && b && b.id === key);
+        if (i === -1) i = list.findIndex((b, idx) => !used.has(idx) && b && b.name === key);
+        if (i === -1 && /^\d+$/.test(String(key))) {
+          const n = parseInt(key, 10);
+          if (n >= 0 && n < list.length && !used.has(n)) i = n;
+        }
+      }
+      if (i !== -1) { used.add(i); result.push(list[i]); }
+    }
+    list.forEach((b, idx) => { if (!used.has(idx)) result.push(b); });
+    config.bookmarks[category] = result;
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, category, order: result.map((b) => ({ id: b.id, name: b.name })) });
+    return;
+  }
+
+  // ── Categories: add ─────────────────────────────────────────────────────
+  if (method === 'POST' && action === 'add-category') {
+    const body = await readJsonBody(req) || {};
+    const category = String(body.category || '').trim();
+    if (!category) { sendJson(res, 400, { error: 'category is required' }); return; }
+    if (config.bookmarks[category] !== undefined) { sendJson(res, 409, { error: 'Category already exists' }); return; }
+    if (body.index === undefined || body.index === null || body.index === '') {
+      config.bookmarks[category] = [];
+    } else {
+      const entries = Object.entries(config.bookmarks);
+      const at = clampIndex(body.index, entries.length, entries.length);
+      entries.splice(at, 0, [category, []]);
+      config.bookmarks = Object.fromEntries(entries);
+    }
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, category });
+    return;
+  }
+
+  // ── Categories: rename ──────────────────────────────────────────────────
+  if (method === 'POST' && action === 'rename-category') {
+    const body = await readJsonBody(req) || {};
+    const category = String(body.category || '').trim();
+    const newName = String(body.newName || '').trim();
+    if (!category || !newName) { sendJson(res, 400, { error: 'category and newName are required' }); return; }
+    if (config.bookmarks[category] === undefined) { sendJson(res, 404, { error: 'Category not found' }); return; }
+    if (category === newName) { sendJson(res, 200, { ok: true, from: category, to: newName }); return; }
+    if (config.bookmarks[newName] !== undefined) { sendJson(res, 409, { error: 'A category with newName already exists' }); return; }
+    const entries = Object.entries(config.bookmarks).map(([k, v]) => (k === category ? [newName, v] : [k, v]));
+    config.bookmarks = Object.fromEntries(entries);
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, from: category, to: newName });
+    return;
+  }
+
+  // ── Categories: delete ──────────────────────────────────────────────────
+  if ((method === 'POST' || method === 'DELETE') && action === 'delete-category') {
+    const body = (method === 'POST') ? (await readJsonBody(req) || {}) : {};
+    const category = String(body.category || urlObj.searchParams.get('category') || '').trim();
+    if (!category) { sendJson(res, 400, { error: 'category is required' }); return; }
+    if (config.bookmarks[category] === undefined) { sendJson(res, 404, { error: 'Category not found' }); return; }
+    const removedCount = config.bookmarks[category].length;
+    delete config.bookmarks[category];
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, category, removedCount });
+    return;
+  }
+
+  // ── Categories: reorder ─────────────────────────────────────────────────
+  if (method === 'POST' && action === 'reorder-categories') {
+    const body = await readJsonBody(req) || {};
+    if (!Array.isArray(body.order)) { sendJson(res, 400, { error: 'order must be an array of category names' }); return; }
+    const current = config.bookmarks;
+    const result = {};
+    const used = new Set();
+    for (const k of body.order) {
+      if (typeof k === 'string' && current[k] !== undefined && !used.has(k)) { result[k] = current[k]; used.add(k); }
+    }
+    for (const k of Object.keys(current)) { if (!used.has(k)) result[k] = current[k]; }
+    config.bookmarks = result;
+    writeConfig(config);
+    sendJson(res, 200, { ok: true, order: Object.keys(result) });
     return;
   }
 
@@ -449,6 +693,17 @@ async function handleApi(req, res, urlObj) {
 
   sendJson(res, 404, { error: 'Unknown action' });
 }
+
+// ── One-time migration: backfill stable bookmark ids ────────────────────────
+(() => {
+  const cfg = readConfig();
+  const { bookmarks, changed } = normalizeBookmarks(cfg.bookmarks || {});
+  if (changed) {
+    cfg.bookmarks = bookmarks;
+    writeConfig(cfg);
+    console.log('Migrated bookmarks: assigned stable ids.');
+  }
+})();
 
 // ── Server ──────────────────────────────────────────────────────────────────
 const server = http.createServer((req, res) => {

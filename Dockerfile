@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Copy the application. config.json acts as the seed for first run.
 COPY server.js package.json config.json ./
-COPY index.html Bookmarks.html ./
+COPY index.html docs.html Bookmarks.html ./
 
 # Persisted data (config + uploads) lives here. Mount a volume to keep it.
 ENV DATA_DIR=/data

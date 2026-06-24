@@ -108,33 +108,72 @@ On first run, if `config.json` doesn't exist in the data directory, the bundled 
 - Use the clip filter buttons to show only text, files, or both
 - Click a category header to collapse/expand it
 
-## API Reference
+## API & Automation
 
-The frontend talks to a single endpoint, `api.php` (the name is kept for backward
-compatibility — it's served by Node.js, not PHP), using an `action` query parameter.
+Everything — bookmarks, categories, clips and files — is controllable over HTTP, so
+you can script it or let an **AI agent add, remove, reorder and organize bookmarks**.
 
-| Method | Endpoint                                            | Description                         |
-|--------|-----------------------------------------------------|-------------------------------------|
-| GET    | `/api.php?action=config`                            | Fetch all bookmarks and clips       |
-| GET    | `/api.php?action=version`                           | Get the config version number       |
-| GET    | `/api.php?action=health`                            | Server / storage diagnostics        |
-| GET    | `/api.php?action=download&filename=…&original=…`    | Download an attachment              |
-| POST   | `/api.php?action=bookmarks`                         | Save the bookmarks object           |
-| POST   | `/api.php?action=clip`                              | Add a text clip (JSON body)         |
-| POST   | `/api.php?action=upload`                            | Upload a file (multipart form-data) |
-| POST   | `/api.php?action=update-clip&id=…`                  | Edit a text clip                    |
-| DELETE | `/api.php?action=clip&id=…&filename=…`              | Delete a clip (and its file)        |
+📖 **Full interactive reference: open `http://localhost:3000/docs.html`** (also linked from the
+in-app **?** Help panel). It documents every action with request/response examples and an
+AI-agent usage guide.
+
+All endpoints live under one path, `/api.php` (the name is kept for backward compatibility —
+it's served by Node.js, not PHP), with the operation chosen by an `?action=` query parameter.
+
+### Bookmarks & categories
+
+| Method | Action | Description |
+|--------|--------|-------------|
+| GET    | `bookmarks` | Fetch the bookmarks tree + version |
+| POST   | `bookmarks` | Replace the entire tree (bulk reorganize) |
+| POST   | `add-bookmark` | Add a bookmark to a category (creates category if needed) |
+| POST   | `update-bookmark` | Edit a bookmark's name/url/info/ping |
+| POST/DELETE | `delete-bookmark` | Remove a bookmark |
+| POST   | `move-bookmark` | Move a bookmark across/within categories |
+| POST   | `reorder-bookmarks` | Reorder bookmarks within a category |
+| POST   | `add-category` | Create an empty category |
+| POST   | `rename-category` | Rename a category (keeps order + contents) |
+| POST/DELETE | `delete-category` | Delete a category and its bookmarks |
+| POST   | `reorder-categories` | Reorder the categories |
+
+Each bookmark gets a stable server-assigned `id` (e.g. `bm_abc123`). Edit/move/delete
+operations take a **locator** — an `id`, or a `category` + `index`, or a `category` + `name`.
+
+### Clipboard, files & diagnostics
+
+| Method | Action | Description |
+|--------|--------|-------------|
+| GET    | `config` | Fetch everything (bookmarks + clips + version) |
+| GET    | `version` | Current version counter (poll to detect changes) |
+| GET    | `health` | Runtime / storage diagnostics |
+| POST   | `clip` | Add a text clip |
+| POST   | `upload` | Upload a file (multipart; any size) |
+| POST   | `update-clip&id=…` | Edit a text clip |
+| DELETE | `clip&id=…&filename=…` | Delete a clip (and its file) |
+| GET    | `download&filename=…&original=…` | Download an attachment |
 
 ### Examples
 
-**Add a text clip:**
+**Read the current bookmarks (start here for an agent):**
 ```bash
-curl -X POST "http://localhost:3000/api.php?action=clip" \
-  -H "Content-Type: application/json" \
-  -d '{"text":"My clipboard text","todayOnly":false}'
+curl "http://localhost:3000/api.php?action=bookmarks"
 ```
 
-**Save bookmarks:**
+**Add a bookmark:**
+```bash
+curl -X POST "http://localhost:3000/api.php?action=add-bookmark" \
+  -H "Content-Type: application/json" \
+  -d '{"category":"AI Tools","name":"Claude","url":"https://claude.ai","ping":true}'
+```
+
+**Move a bookmark to the top of another category:**
+```bash
+curl -X POST "http://localhost:3000/api.php?action=move-bookmark" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"bm_abc123","toCategory":"Favorites","toIndex":0}'
+```
+
+**Bulk reorganize (replace the whole tree):**
 ```bash
 curl -X POST "http://localhost:3000/api.php?action=bookmarks" \
   -H "Content-Type: application/json" \
@@ -178,6 +217,7 @@ curl -X POST "http://localhost:3000/api.php?action=upload" \
 ```
 bookmark-dashboard/
 ├── index.html          # Frontend (HTML + CSS + JavaScript)
+├── docs.html           # API & automation reference page
 ├── Bookmarks.html      # Optional standalone static bookmarks page
 ├── server.js           # Node.js backend (zero dependencies)
 ├── config.json         # Starter bookmark/clip data (seeds /data on first run)
