@@ -1,15 +1,13 @@
 services:
-  bookmark-dashboard:
+  bookmark-clipboard:
     build: .
     # Or pull a prebuilt image instead of building:
-    # image: ghcr.io/yourusername/bookmark-dashboard:latest
-    container_name: bookmark-dashboard
+    # image: ghcr.io/heyitsmiike101/bookmark-clipboard:latest
+    container_name: bookmark-clipboard
     ports:
       - "3000:3000"
     volumes:
-      # Persist bookmarks (config.json) and uploaded files across restarts.
-      - bookmark-data:/data
+      # Persist bookmarks (config.json) and uploaded files on the host.
+      # Change the host path on the left if you want a different location.
+      - /home/user/bookmark-clipboard:/data
     restart: unless-stopped
-
-volumes:
-  bookmark-data:

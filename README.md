@@ -1,46 +1,42 @@
-# Bookmark Dashboard
+# Bookmark Clipboard
 
-A fast, self-hosted bookmark manager with integrated clipboard and file sharing. Organize links by category, monitor service availability with optional ping checks, and share text snippets and files across your local network.
+A fast, self-hosted **bookmark dashboard with built-in clipboard and file sharing**. Organize
+links by category, monitor services with optional ping checks, and share text snippets and files
+across your local network — all from one page.
 
-Ships as a single **Docker container** — pull it, run it, and it just works. The backend is plain Node.js with **zero external dependencies** (built-in modules only), so there's no build step and nothing to install.
+Ships as a single **Docker container**: pull it, run it, done. The backend is plain Node.js with
+**zero external dependencies** (built-in modules only), so there's no build step and nothing to
+install. It also exposes a small **HTTP API** so scripts — or an AI agent — can add, remove,
+reorder and organize bookmarks for you.
+
+---
 
 ## Features
 
-- **📍 Organized Bookmarks** — Group links by category with one-click navigation
-- **📋 Clipboard Sharing** — Paste text snippets or attach files that sync across your network
-- **🌐 Network-Accessible** — Run on your machine and access from any device on your network
-- **📌 Health Monitoring** — Optional ping checks to see if services are online at a glance
-- **💾 File Attachments** — Upload and download files of **any size** (no minimum, no maximum)
-- **⚡ Real-Time Sync** — Live updates when the clipboard changes on another machine
-- **🔍 Search & Filter** — Find bookmarks and filter clips by type (text/files)
-- **🎨 Dark Theme** — Easy on the eyes with customizable accent colors
+- **📍 Organized bookmarks** — group links by category with one-click navigation
+- **📋 Clipboard sharing** — paste text or attach files that sync across your network
+- **💾 File attachments** — upload/download files of **any size** (no minimum, no maximum)
+- **📌 Health monitoring** — optional ping checks show whether a service is online
+- **🤖 Full API** — add / edit / move / reorder / organize bookmarks programmatically ([docs](#api--automation))
+- **🌐 Network-accessible** — run on one machine, use it from any device on your LAN
+- **🎨 Dark theme** — easy on the eyes, with a click-to-copy "info" tile type for IPs and keys
 
-## Quick Start (Docker)
+---
 
-### Option A — Docker Compose (recommended)
+## Quick start
+
+> Prerequisite: **Docker** with the Compose plugin (`docker compose`). Nothing else.
 
 ```bash
-git clone https://github.com/yourusername/bookmark-dashboard.git
-cd bookmark-dashboard
+git clone https://github.com/heyitsmiike101/bookmark-clipboard.git
+cd bookmark-clipboard
 docker compose up -d
 ```
 
-Open **http://localhost:3000** (or `http://<your-machine-ip>:3000` from another device).
+Then open **http://localhost:3000** — or `http://<host-ip>:3000` from another device on your network.
 
-### Option B — Plain Docker
-
-```bash
-git clone https://github.com/yourusername/bookmark-dashboard.git
-cd bookmark-dashboard
-docker build -t bookmark-dashboard .
-docker run -d --name bookmark-dashboard \
-  -p 3000:3000 \
-  -v bookmark-data:/data \
-  --restart unless-stopped \
-  bookmark-dashboard
-```
-
-That's it. The container seeds a starter `config.json` on first run and stores all data on the `/data` volume.
+That's it. On first run the container seeds a starter `config.json` and stores everything on the
+host at **`/home/user/bookmark-clipboard`** (see [Data & persistence](#data--persistence)).
 
 ### Updating
 
@@ -49,76 +45,90 @@ git pull
 docker compose up -d --build
 ```
 
-Your bookmarks and uploaded files persist in the `bookmark-data` volume across rebuilds.
+Your bookmarks and uploaded files live on the host volume, so they survive rebuilds and updates.
 
-## Running Without Docker
-
-The server only needs **Node.js 18+** — no `npm install` required.
+### Stopping / removing
 
 ```bash
-node server.js
+docker compose down          # stop and remove the container (data is kept on the host)
 ```
 
-By default it serves on port `3000` and stores data in a `./data` directory next to `server.js`.
+---
+
+## Data & persistence
+
+All state lives in **one host directory**, bind-mounted into the container at `/data`:
+
+```
+/home/user/bookmark-clipboard/
+├── config.json      # bookmarks + clips
+└── attachments/     # uploaded files
+```
+
+This path is set in [`docker-compose.yml`](docker-compose.yml):
+
+```yaml
+    volumes:
+      - /home/user/bookmark-clipboard:/data
+```
+
+- **Change the location** by editing the left side of that line (the right side, `:/data`, must stay).
+- Docker creates the directory automatically on first run if it doesn't exist.
+- If the container can't write to it, make sure the directory is writable (e.g. `chmod 777
+  /home/user/bookmark-clipboard`, or `chown` it to the user the container runs as).
+
+> Prefer a Docker-managed named volume instead of a host path? Replace the line above with
+> `- bookmark-data:/data` and add a top-level `volumes:\n  bookmark-data:` block.
+
+---
 
 ## Configuration
 
-All settings are environment variables (set them in `docker-compose.yml` or via `-e` flags):
+Settings are environment variables. Set them under `environment:` in `docker-compose.yml` or with
+`-e` flags on `docker run`.
 
-| Variable   | Default            | Description                                  |
-|------------|--------------------|----------------------------------------------|
-| `PORT`     | `3000`             | Port the server listens on                   |
-| `HOST`     | `0.0.0.0`          | Bind address                                 |
-| `DATA_DIR` | `/data` (container) | Where `config.json` and `attachments/` live |
+| Variable   | Default              | Description                                   |
+|------------|----------------------|-----------------------------------------------|
+| `PORT`     | `3000`               | Port the server listens on (inside container) |
+| `HOST`     | `0.0.0.0`            | Bind address                                  |
+| `DATA_DIR` | `/data`              | Where `config.json` and `attachments/` live   |
 
-### Data layout
+To serve on a different host port, change the `ports` mapping, e.g. `- "8080:3000"`.
 
-Everything lives under `DATA_DIR` so it survives container rebuilds when mounted as a volume:
+---
 
-```
-/data/
-├── config.json     # bookmarks + clips
-└── attachments/    # uploaded files
-```
+## Using the dashboard
 
-On first run, if `config.json` doesn't exist in the data directory, the bundled starter config is copied in automatically.
+### Bookmarks
+1. Click **⚙ Edit Config** to open the editor.
+2. Add categories and bookmarks. For each bookmark:
+   - Leave **Info** unchecked for a normal link; optionally enable **Ping** to show an online/offline dot.
+   - Check **Info** to make a *click-to-copy* tile instead (great for IPs, API keys, notes).
+3. Click **Save**.
 
-## Usage
+### Clipboard & files
+1. Type or paste text in the **Clipboard** section (Enter to save, Shift+Enter for a newline).
+2. Check **Today only** to auto-delete a clip after today.
+3. Click **📎 Attach** (or drag-and-drop) to upload files of any size.
+4. Use **View / Copy / ✕** on each entry; filter by **Text / Files / Both**.
 
-### Managing Bookmarks
+### Search
+- The search bar filters bookmarks by name or category.
+- Click a category header to collapse/expand it.
 
-1. Click **⚙ Edit Config** to open the configuration modal
-2. Add categories and bookmarks
-3. Toggle **Info** to store IP addresses, API keys, or other text (click the tile to copy)
-4. Enable **Ping** to monitor whether a service is online
-5. Click **Save**
-
-### Sharing Text & Files
-
-1. Paste or type text in the **Clipboard** section
-2. Check **Today only** to auto-delete clips at midnight
-3. Press Enter to save, or Shift+Enter for a new line
-4. Click **📎 Attach** to upload files (any size; empty files are fine)
-5. Filter by **Text**, **Files**, or **Both**
-6. Click **View** to expand, **Copy** to copy, or **✕** to delete
-
-### Filtering & Search
-
-- Use the search bar to filter bookmarks by name or category
-- Use the clip filter buttons to show only text, files, or both
-- Click a category header to collapse/expand it
+---
 
 ## API & Automation
 
-Everything — bookmarks, categories, clips and files — is controllable over HTTP, so
-you can script it or let an **AI agent add, remove, reorder and organize bookmarks**.
+Everything — bookmarks, categories, clips and files — is controllable over HTTP, so you can script
+it or let an **AI agent add, remove, reorder and organize bookmarks**.
 
-📖 **Full interactive reference: open `http://localhost:3000/docs.html`** (also linked from the
-in-app **?** Help panel). It documents every action with request/response examples and an
-AI-agent usage guide.
+📖 **Open the full interactive reference at `http://localhost:3000/docs.html`** (also linked from the
+in-app **?** Help panel). It documents every action with request/response examples and an AI-agent
+usage guide.
 
-All endpoints live under one path, `/api.php` (the name is kept for backward compatibility —
-it's served by Node.js, not PHP), with the operation chosen by an `?action=` query parameter.
+All endpoints live under one path, `/api.php` (the name is kept for backward compatibility — it's
+served by Node.js, not PHP), with the operation chosen by an `?action=` query parameter.
 
 ### Bookmarks & categories
 
@@ -127,17 +137,17 @@ it's served by Node.js, not PHP), with the operation chosen by an `?action=` que
 | GET    | `bookmarks` | Fetch the bookmarks tree + version |
 | POST   | `bookmarks` | Replace the entire tree (bulk reorganize) |
 | POST   | `add-bookmark` | Add a bookmark to a category (creates category if needed) |
-| POST   | `update-bookmark` | Edit a bookmark's name/url/info/ping |
+| POST   | `update-bookmark` | Edit a bookmark's name / url / info / ping |
 | POST/DELETE | `delete-bookmark` | Remove a bookmark |
-| POST   | `move-bookmark` | Move a bookmark across/within categories |
+| POST   | `move-bookmark` | Move a bookmark across or within categories |
 | POST   | `reorder-bookmarks` | Reorder bookmarks within a category |
 | POST   | `add-category` | Create an empty category |
 | POST   | `rename-category` | Rename a category (keeps order + contents) |
 | POST/DELETE | `delete-category` | Delete a category and its bookmarks |
 | POST   | `reorder-categories` | Reorder the categories |
 
-Each bookmark gets a stable server-assigned `id` (e.g. `bm_abc123`). Edit/move/delete
-operations take a **locator** — an `id`, or a `category` + `index`, or a `category` + `name`.
+Each bookmark has a stable server-assigned `id` (e.g. `bm_abc123`). Edit/move/delete operations take
+a **locator** — an `id`, or `category` + `index`, or `category` + `name`.
 
 ### Clipboard, files & diagnostics
 
@@ -173,74 +183,58 @@ curl -X POST "http://localhost:3000/api.php?action=move-bookmark" \
   -d '{"id":"bm_abc123","toCategory":"Favorites","toIndex":0}'
 ```
 
-**Bulk reorganize (replace the whole tree):**
-```bash
-curl -X POST "http://localhost:3000/api.php?action=bookmarks" \
-  -H "Content-Type: application/json" \
-  -d '{"Work":[{"name":"Jira","url":"https://jira.company.com"}]}'
-```
-
 **Upload a file:**
 ```bash
 curl -X POST "http://localhost:3000/api.php?action=upload" \
   -F "file=@/path/to/file.pdf" -F "todayOnly=0"
 ```
 
-## Config Format
+---
 
-```json
-{
-  "bookmarks": {
-    "Category Name": [
-      { "name": "Display Name", "url": "https://example.com", "ping": false },
-      { "name": "Server IP", "info": "192.168.1.100" }
-    ]
-  },
-  "clips": []
-}
+## Running without Docker
+
+The server needs only **Node.js 18+** — no `npm install`.
+
+```bash
+node server.js
 ```
 
-### Bookmark options
-- `name` (required) — Display name
-- `url` (required for links) — Target URL
-- `info` (optional) — Info tile; click to copy (for IPs, keys, etc.)
-- `ping` (optional) — If true, checks whether the service is online via a favicon request
+It serves on port `3000` and stores data in a `./data` directory next to `server.js` (override with
+`DATA_DIR`).
 
-### Clip options
-- `type` — `"text"` or `"file"`
-- `todayOnly` — If true, the clip auto-deletes at midnight
-- `filename` — For files: the stored filename
-- `originalName` — For files: the name shown and used for download
+---
 
-## File Structure
+## Project structure
 
 ```
-bookmark-dashboard/
+bookmark-clipboard/
 ├── index.html          # Frontend (HTML + CSS + JavaScript)
-├── docs.html           # API & automation reference page
-├── Bookmarks.html      # Optional standalone static bookmarks page
+├── docs.html           # API & automation reference page (served at /docs.html)
 ├── server.js           # Node.js backend (zero dependencies)
-├── config.json         # Starter bookmark/clip data (seeds /data on first run)
-├── package.json        # Metadata + start script
-├── Dockerfile          # Container image definition
+├── config.json         # Starter data (seeds the host volume on first run)
+├── Dockerfile          # Container image
 ├── docker-compose.yml  # One-command deployment
-└── README.md           # This file
+└── README.md
 ```
+
+---
 
 ## Troubleshooting
 
 **Can't reach the dashboard**
-- Confirm the container is running: `docker compose ps` / `docker ps`
-- Check logs: `docker compose logs -f` / `docker logs bookmark-dashboard`
-- Make sure port `3000` isn't blocked by a firewall
+- `docker compose ps` — is the container `Up`?
+- `docker compose logs -f` — check for errors.
+- Confirm the host port (default `3000`) isn't already in use or firewalled.
 
-**Changes not saving / uploads failing**
-- Open the **Help** modal in the UI to see live storage diagnostics
-- Ensure the `/data` volume is writable by the container
+**Changes don't save / uploads fail**
+- Open the in-app **?** Help panel for live storage diagnostics.
+- Make sure the host volume directory is writable by the container.
 
 **Clips not syncing across machines**
-- All machines must be on the same network and able to reach `http://<your-ip>:3000`
+- All devices must reach `http://<host-ip>:3000` on the same network.
+
+---
 
 ## License
 
-MIT — feel free to use, modify, and distribute.
+MIT — use, modify, and distribute freely.
