@@ -1301,8 +1301,13 @@
             const fresh = await r2.json();
             syncVersion = fresh.version ?? version;
             config.clips = fresh.clips;
+            config.bookmarks = fresh.bookmarks;
             // Don't close the expand modal if it's open — just refresh the list
             renderClips();
+            renderBookmarks();
+            // Re-apply the active search filter to the freshly rendered tiles.
+            const searchEl = document.getElementById('search');
+            if (searchEl && searchEl.value) searchEl.dispatchEvent(new Event('input', { bubbles: true }));
             showSyncBadge();
           }
         } catch (_) {
