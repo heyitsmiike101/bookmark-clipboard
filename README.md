@@ -104,7 +104,19 @@ To serve on a different host port, change the `ports` mapping, e.g. `- "8080:300
 2. Add categories and bookmarks. For each bookmark:
    - Leave **Info** unchecked for a normal link; optionally enable **Ping** to show an online/offline dot.
    - Check **Info** to make a *click-to-copy* tile instead (great for IPs, API keys, notes).
-3. Click **Save**.
+3. **Reorder** by dragging the **⠿** handle on any category or bookmark row (drag bookmarks within or
+   between categories). The new order is saved with **Save**.
+4. Click **Save**.
+
+### Themes
+
+Open **⚙ Edit Config** and pick a **Theme** at the top:
+
+- **Terminal** — the original green-on-black look.
+- **Midnight** — a calmer GitHub-dark theme with a blue accent, higher contrast, and cleaner tiles
+  (great for everyday bookmarking).
+
+Your choice is saved in the browser (per device) and applied instantly.
 
 ### Clipboard & files
 1. Type or paste text in the **Clipboard** section (Enter to save, Shift+Enter for a newline).
