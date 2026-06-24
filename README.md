@@ -127,8 +127,8 @@ it or let an **AI agent add, remove, reorder and organize bookmarks**.
 in-app **?** Help panel). It documents every action with request/response examples and an AI-agent
 usage guide.
 
-All endpoints live under one path, `/api.php` (the name is kept for backward compatibility — it's
-served by Node.js, not PHP), with the operation chosen by an `?action=` query parameter.
+All endpoints live under one path, `/api`, with the operation chosen by an `?action=` query
+parameter (e.g. `/api?action=config`).
 
 ### Bookmarks & categories
 
@@ -166,26 +166,26 @@ a **locator** — an `id`, or `category` + `index`, or `category` + `name`.
 
 **Read the current bookmarks (start here for an agent):**
 ```bash
-curl "http://localhost:3000/api.php?action=bookmarks"
+curl "http://localhost:3000/api?action=bookmarks"
 ```
 
 **Add a bookmark:**
 ```bash
-curl -X POST "http://localhost:3000/api.php?action=add-bookmark" \
+curl -X POST "http://localhost:3000/api?action=add-bookmark" \
   -H "Content-Type: application/json" \
   -d '{"category":"AI Tools","name":"Claude","url":"https://claude.ai","ping":true}'
 ```
 
 **Move a bookmark to the top of another category:**
 ```bash
-curl -X POST "http://localhost:3000/api.php?action=move-bookmark" \
+curl -X POST "http://localhost:3000/api?action=move-bookmark" \
   -H "Content-Type: application/json" \
   -d '{"id":"bm_abc123","toCategory":"Favorites","toIndex":0}'
 ```
 
 **Upload a file:**
 ```bash
-curl -X POST "http://localhost:3000/api.php?action=upload" \
+curl -X POST "http://localhost:3000/api?action=upload" \
   -F "file=@/path/to/file.pdf" -F "todayOnly=0"
 ```
 

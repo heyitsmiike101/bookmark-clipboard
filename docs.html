@@ -119,9 +119,9 @@
     <p class="lead">Everything in the dashboard — bookmarks, categories, clipboard entries and file
     attachments — is controllable through a small HTTP API. This page documents every action.</p>
 
-    <p>All endpoints live under a single path, <code>/api.php</code>, with the operation chosen by an
-    <code>?action=</code> query parameter. (The <code>.php</code> name is kept for backward compatibility — the
-    server is plain Node.js, no PHP involved.)</p>
+    <p>All endpoints live under a single path, <code>/api</code>, with the operation chosen by an
+    <code>?action=</code> query parameter (for example <code>/api?action=config</code>). The server is
+    plain Node.js.</p>
 
     <table>
       <tr><th>Base URL</th><td><code id="base">http://localhost:3000</code> (this server: <code id="base2"></code>)</td></tr>
@@ -172,7 +172,7 @@
     <h2 id="ai">Using with an AI agent</h2>
     <p>The API is designed to be driven by an LLM/agent. Recommended loop:</p>
     <ol>
-      <li><strong>Read first.</strong> <code>GET /api.php?action=bookmarks</code> to see current categories, bookmarks and their <code>id</code>s.</li>
+      <li><strong>Read first.</strong> <code>GET /api?action=bookmarks</code> to see current categories, bookmarks and their <code>id</code>s.</li>
       <li><strong>Mutate by <code>id</code>.</strong> Prefer ids returned from the read for edits/moves — robust against duplicate names.</li>
       <li><strong>Re-read after multi-step organizing</strong> if you need fresh indices/ids.</li>
     </ol>
@@ -185,26 +185,26 @@
     <h2>Read endpoints</h2>
 
     <div class="ep" id="get-config">
-      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api.php?action=config</span></div>
+      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=config</span></div>
       <p class="desc">Return the entire document: <code>bookmarks</code>, <code>clips</code> and <code>version</code>.</p>
-      <pre><code>curl "$BASE/api.php?action=config"</code></pre>
+      <pre><code>curl "$BASE/api?action=config"</code></pre>
     </div>
 
     <div class="ep" id="get-bookmarks">
-      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api.php?action=bookmarks</span></div>
+      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=bookmarks</span></div>
       <p class="desc">Return just the bookmarks tree plus the current version — the usual starting point for an agent.</p>
-      <pre><code>curl "$BASE/api.php?action=bookmarks"
+      <pre><code>curl "$BASE/api?action=bookmarks"
 
 → { "bookmarks": { "ARRs": [ { "id": "bm_…", "name": "Sonarr", "url": "…" } ] }, "version": 42 }</code></pre>
     </div>
 
     <div class="ep" id="get-version">
-      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api.php?action=version</span></div>
+      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=version</span></div>
       <p class="desc">Return <code>{ "version": N }</code>. Increments on every change — poll it to detect updates.</p>
     </div>
 
     <div class="ep" id="get-health">
-      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api.php?action=health</span></div>
+      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=health</span></div>
       <p class="desc">Runtime + storage diagnostics (Node version, data dir, read/write status, upload limit).</p>
     </div>
 
@@ -212,7 +212,7 @@
     <h2>Bookmark actions</h2>
 
     <div class="ep" id="add-bookmark">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=add-bookmark</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=add-bookmark</span></div>
       <p class="desc">Create a bookmark in a category (the category is created if it doesn't exist).</p>
       <table>
         <tr><th>Field</th><th>Type</th><th></th><th>Notes</th></tr>
@@ -223,7 +223,7 @@
         <tr><td><code>ping</code></td><td>boolean</td><td class="opt">optional</td><td>Only for link tiles; enables the status dot.</td></tr>
         <tr><td><code>index</code></td><td>number</td><td class="opt">optional</td><td>Insert position (default: end of category).</td></tr>
       </table>
-      <pre><code>curl -X POST "$BASE/api.php?action=add-bookmark" \
+      <pre><code>curl -X POST "$BASE/api?action=add-bookmark" \
   -H "Content-Type: application/json" \
   -d '{ "category": "AI Tools", "name": "Claude", "url": "https://claude.ai", "ping": true }'
 
@@ -232,7 +232,7 @@
     </div>
 
     <div class="ep" id="update-bookmark">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=update-bookmark</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=update-bookmark</span></div>
       <p class="desc">Edit a bookmark's fields. Identify it with a <a href="#locator">locator</a>; put new values in <code>fields</code>.</p>
       <table>
         <tr><th>Field</th><th>Notes</th></tr>
@@ -242,26 +242,26 @@
         <tr><td><code>fields.info</code></td><td>Set/replace the info value (converts a link tile to an info tile).</td></tr>
         <tr><td><code>fields.ping</code></td><td><code>true</code>/<code>false</code> for link tiles.</td></tr>
       </table>
-      <pre><code>curl -X POST "$BASE/api.php?action=update-bookmark" \
+      <pre><code>curl -X POST "$BASE/api?action=update-bookmark" \
   -H "Content-Type: application/json" \
   -d '{ "id": "bm_abc123", "fields": { "name": "Claude (Opus)", "ping": false } }'</code></pre>
     </div>
 
     <div class="ep" id="delete-bookmark">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="m DELETE">DELETE</span> <span class="path">/api.php?action=delete-bookmark</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="m DELETE">DELETE</span> <span class="path">/api?action=delete-bookmark</span></div>
       <p class="desc">Remove a bookmark. Use a <a href="#locator">locator</a> in the JSON body (POST) or as query params (DELETE).</p>
       <pre><code># By id (POST body)
-curl -X POST "$BASE/api.php?action=delete-bookmark" \
+curl -X POST "$BASE/api?action=delete-bookmark" \
   -H "Content-Type: application/json" -d '{ "id": "bm_abc123" }'
 
 # By category + name (DELETE with query params)
-curl -X DELETE "$BASE/api.php?action=delete-bookmark&category=ARRs&name=Sonarr"
+curl -X DELETE "$BASE/api?action=delete-bookmark&category=ARRs&name=Sonarr"
 
 → { "ok": true, "removed": { "id": "bm_…", "name": "Sonarr", "url": "…" }, "category": "ARRs" }</code></pre>
     </div>
 
     <div class="ep" id="move-bookmark">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=move-bookmark</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=move-bookmark</span></div>
       <p class="desc">Move a bookmark to another category and/or a new position. Same-category moves reposition it.</p>
       <table>
         <tr><th>Field</th><th></th><th>Notes</th></tr>
@@ -269,25 +269,25 @@ curl -X DELETE "$BASE/api.php?action=delete-bookmark&category=ARRs&name=Sonarr"
         <tr><td><code>toCategory</code></td><td class="opt">optional</td><td>Destination category (created if missing). Default: same category.</td></tr>
         <tr><td><code>toIndex</code></td><td class="opt">optional</td><td>Position in the destination (default: end).</td></tr>
       </table>
-      <pre><code>curl -X POST "$BASE/api.php?action=move-bookmark" \
+      <pre><code>curl -X POST "$BASE/api?action=move-bookmark" \
   -H "Content-Type: application/json" \
   -d '{ "id": "bm_abc123", "toCategory": "Favorites", "toIndex": 0 }'</code></pre>
     </div>
 
     <div class="ep" id="reorder-bookmarks">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=reorder-bookmarks</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=reorder-bookmarks</span></div>
       <p class="desc">Set the order of bookmarks within one category. <code>order</code> is a list of ids, names, or indices.
       Any bookmarks you omit are appended after, keeping their original relative order.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=reorder-bookmarks" \
+      <pre><code>curl -X POST "$BASE/api?action=reorder-bookmarks" \
   -H "Content-Type: application/json" \
   -d '{ "category": "ARRs", "order": ["bm_radarr", "bm_sonarr", "Prowlarr"] }'</code></pre>
     </div>
 
     <div class="ep" id="bulk">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=bookmarks</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=bookmarks</span></div>
       <p class="desc">Replace the <strong>entire</strong> bookmarks tree at once — ideal for bulk reorganizing.
       Existing <code>id</code>s you include are preserved; any bookmark without one is assigned a fresh id.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=bookmarks" \
+      <pre><code>curl -X POST "$BASE/api?action=bookmarks" \
   -H "Content-Type: application/json" \
   -d '{ "Work": [ { "name": "Jira", "url": "https://jira.example.com" } ],
         "Home": [ { "name": "Router", "info": "192.168.1.1" } ] }'
@@ -299,37 +299,37 @@ curl -X DELETE "$BASE/api.php?action=delete-bookmark&category=ARRs&name=Sonarr"
     <h2>Category actions</h2>
 
     <div class="ep" id="add-category">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=add-category</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=add-category</span></div>
       <p class="desc">Create a new, empty category. Errors with <code>409</code> if it already exists.</p>
       <table>
         <tr><td><code>category</code></td><td class="req">required</td><td>Name of the new category.</td></tr>
         <tr><td><code>index</code></td><td class="opt">optional</td><td>Position among categories (default: end).</td></tr>
       </table>
-      <pre><code>curl -X POST "$BASE/api.php?action=add-category" \
+      <pre><code>curl -X POST "$BASE/api?action=add-category" \
   -H "Content-Type: application/json" -d '{ "category": "AI Tools", "index": 0 }'</code></pre>
     </div>
 
     <div class="ep" id="rename-category">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=rename-category</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=rename-category</span></div>
       <p class="desc">Rename a category, preserving its position and bookmarks.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=rename-category" \
+      <pre><code>curl -X POST "$BASE/api?action=rename-category" \
   -H "Content-Type: application/json" -d '{ "category": "AI Tools", "newName": "AI" }'</code></pre>
     </div>
 
     <div class="ep" id="delete-category">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="m DELETE">DELETE</span> <span class="path">/api.php?action=delete-category</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="m DELETE">DELETE</span> <span class="path">/api?action=delete-category</span></div>
       <p class="desc">Delete a category <strong>and all bookmarks in it</strong>.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=delete-category" \
+      <pre><code>curl -X POST "$BASE/api?action=delete-category" \
   -H "Content-Type: application/json" -d '{ "category": "AI" }'
 
-# or:  curl -X DELETE "$BASE/api.php?action=delete-category&category=AI"
+# or:  curl -X DELETE "$BASE/api?action=delete-category&category=AI"
 → { "ok": true, "category": "AI", "removedCount": 3 }</code></pre>
     </div>
 
     <div class="ep" id="reorder-categories">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=reorder-categories</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=reorder-categories</span></div>
       <p class="desc">Set the order of categories. Omitted categories are appended in their original order.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=reorder-categories" \
+      <pre><code>curl -X POST "$BASE/api?action=reorder-categories" \
   -H "Content-Type: application/json" \
   -d '{ "order": ["Favorites", "Work", "Home"] }'</code></pre>
     </div>
@@ -340,9 +340,9 @@ curl -X DELETE "$BASE/api.php?action=delete-bookmark&category=ARRs&name=Sonarr"
     <code>todayOnly: true</code> is auto-removed after the day it was created.</p>
 
     <div class="ep" id="clip">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=clip</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=clip</span></div>
       <p class="desc">Add a text clip.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=clip" \
+      <pre><code>curl -X POST "$BASE/api?action=clip" \
   -H "Content-Type: application/json" \
   -d '{ "text": "shared note", "todayOnly": false }'
 
@@ -350,10 +350,10 @@ curl -X DELETE "$BASE/api.php?action=delete-bookmark&category=ARRs&name=Sonarr"
     </div>
 
     <div class="ep" id="upload">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=upload</span> <span class="pill">multipart/form-data</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=upload</span> <span class="pill">multipart/form-data</span></div>
       <p class="desc">Upload a file as a clip. Fields: <code>file</code> (the file) and optional <code>todayOnly</code> (<code>1</code>/<code>0</code>).
       No size limit — any size, including empty files.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=upload" \
+      <pre><code>curl -X POST "$BASE/api?action=upload" \
   -F "file=@/path/to/report.pdf" -F "todayOnly=0"
 
 → { "id": "…", "type": "file", "filename": "…_report.pdf", "originalName": "report.pdf",
@@ -361,23 +361,23 @@ curl -X DELETE "$BASE/api.php?action=delete-bookmark&category=ARRs&name=Sonarr"
     </div>
 
     <div class="ep" id="update-clip">
-      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api.php?action=update-clip&amp;id=ID</span></div>
+      <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=update-clip&amp;id=ID</span></div>
       <p class="desc">Edit the text of an existing text clip.</p>
-      <pre><code>curl -X POST "$BASE/api.php?action=update-clip&id=123" \
+      <pre><code>curl -X POST "$BASE/api?action=update-clip&id=123" \
   -H "Content-Type: application/json" -d '{ "text": "updated note" }'</code></pre>
     </div>
 
     <div class="ep" id="delete-clip">
-      <div class="ep-head"><span class="m DELETE">DELETE</span> <span class="path">/api.php?action=clip&amp;id=ID</span></div>
+      <div class="ep-head"><span class="m DELETE">DELETE</span> <span class="path">/api?action=clip&amp;id=ID</span></div>
       <p class="desc">Delete a clip. For file clips, also pass <code>filename</code> to remove the stored file from disk.</p>
-      <pre><code>curl -X DELETE "$BASE/api.php?action=clip&id=123&filename=123_report.pdf"</code></pre>
+      <pre><code>curl -X DELETE "$BASE/api?action=clip&id=123&filename=123_report.pdf"</code></pre>
     </div>
 
     <div class="ep" id="download">
-      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api.php?action=download&amp;filename=F&amp;original=NAME</span></div>
+      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=download&amp;filename=F&amp;original=NAME</span></div>
       <p class="desc">Download a stored file. <code>filename</code> is the stored name; <code>original</code> sets the
       suggested download filename.</p>
-      <pre><code>curl -OJ "$BASE/api.php?action=download&filename=123_report.pdf&original=report.pdf"</code></pre>
+      <pre><code>curl -OJ "$BASE/api?action=download&filename=123_report.pdf&original=report.pdf"</code></pre>
     </div>
 
     <hr>

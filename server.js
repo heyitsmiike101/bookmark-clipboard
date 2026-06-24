@@ -3,9 +3,8 @@
 /*
  * Bookmark Dashboard — Node.js backend
  *
- * Drop-in replacement for the old api.php. The frontend still calls
- * `api.php?action=...`, so every route below is mounted under /api.php to
- * keep index.html unchanged.
+ * All operations are served under /api, selected by an ?action=... query
+ * parameter (e.g. /api?action=config).
  *
  * Zero external dependencies (built-in modules only) so the Docker image
  * builds and runs without any network access or `npm install`.
@@ -715,7 +714,7 @@ const server = http.createServer((req, res) => {
   }
   const pathname = urlObj.pathname;
 
-  if (pathname === '/api.php' || pathname === '/api') {
+  if (pathname === '/api') {
     handleApi(req, res, urlObj).catch((e) => {
       if (!res.headersSent) sendJson(res, 500, { error: 'Server error: ' + e.message });
     });

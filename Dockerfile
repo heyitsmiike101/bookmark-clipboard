@@ -20,7 +20,7 @@ EXPOSE 3000
 
 # Basic container health check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:3000/api.php?action=version >/dev/null 2>&1 || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/api?action=version >/dev/null 2>&1 || exit 1
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "server.js"]

@@ -1291,12 +1291,12 @@
 
       setInterval(async () => {
         try {
-          const r = await fetch('api.php?action=version');
+          const r = await fetch('api?action=version');
           if (!r.ok) return;
           const { version } = await r.json();
           if (version !== syncVersion) {
             // Something changed — fetch full config and refresh clips
-            const r2 = await fetch('api.php?action=config');
+            const r2 = await fetch('api?action=config');
             if (!r2.ok) return;
             const fresh = await r2.json();
             syncVersion = fresh.version ?? version;
@@ -1313,19 +1313,19 @@
 
     async function loadConfig() {
       try {
-        const res = await fetch('api.php?action=config');
+        const res = await fetch('api?action=config');
         const text = await res.text();
         try {
           config = JSON.parse(text);
         } catch (e) {
-          showError('api.php returned non-JSON. First 200 chars: ' + text.slice(0, 200));
+          showError('The API returned non-JSON. First 200 chars: ' + text.slice(0, 200));
           return;
         }
         syncVersion = config.version ?? 0;
         renderClips();
         renderBookmarks();
       } catch (e) {
-        showError('Failed to reach api.php: ' + e.message);
+        showError('Failed to reach the API: ' + e.message);
       }
     }
 
@@ -1343,7 +1343,7 @@
       if (!text) return;
       input.value = '';
       const todayOnly = document.getElementById('clip-today-only').checked;
-      const res = await fetch('api.php?action=clip', {
+      const res = await fetch('api?action=clip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, todayOnly })
@@ -1380,7 +1380,7 @@
 
       let startTime = null;
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'api.php?action=upload');
+      xhr.open('POST', 'api?action=upload');
 
       xhr.upload.onprogress = e => {
         if (!e.lengthComputable) return;
@@ -1437,7 +1437,7 @@
       files.forEach((clip, i) => {
         setTimeout(() => {
           const a = document.createElement('a');
-          a.href = `api.php?action=download&filename=${encodeURIComponent(clip.filename)}&original=${encodeURIComponent(clip.originalName)}`;
+          a.href = `api?action=download&filename=${encodeURIComponent(clip.filename)}&original=${encodeURIComponent(clip.originalName)}`;
           a.download = clip.originalName;
           document.body.appendChild(a);
           a.click();
@@ -1490,7 +1490,7 @@
     function openHelp() {
       document.getElementById('help-backdrop').classList.add('open');
       document.getElementById('help-content').innerHTML = '<p style="color:var(--muted);font-size:0.9rem;">Checking…</p>';
-      fetch('api.php?action=health')
+      fetch('api?action=health')
         .then(r => r.json()).then(renderHealth)
         .catch(() => {
           document.getElementById('help-content').innerHTML =
@@ -1610,7 +1610,7 @@
       saveBtn.disabled = true;
       status.style.opacity = '0';
 
-      fetch('api.php?action=update-clip&id=' + encodeURIComponent(expandClipId), {
+      fetch('api?action=update-clip&id=' + encodeURIComponent(expandClipId), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: newText })
@@ -1681,7 +1681,7 @@
     }
 
     async function deleteClip(id, filename) {
-      await fetch(`api.php?action=clip&id=${id}${filename ? '&filename=' + encodeURIComponent(filename) : ''}`, { method: 'DELETE' });
+      await fetch(`api?action=clip&id=${id}${filename ? '&filename=' + encodeURIComponent(filename) : ''}`, { method: 'DELETE' });
       config.clips = config.clips.filter(c => c.id !== id);
       selectedFiles.delete(id);
       updateDownloadBar();
@@ -1740,7 +1740,7 @@
         }
       });
       toDelete.forEach(clip => {
-        fetch(`api.php?action=clip&id=${clip.id}${clip.filename ? '&filename=' + encodeURIComponent(clip.filename) : ''}`, { method: 'DELETE' });
+        fetch(`api?action=clip&id=${clip.id}${clip.filename ? '&filename=' + encodeURIComponent(clip.filename) : ''}`, { method: 'DELETE' });
       });
       if (toDelete.length) config.clips = config.clips.filter(c => !toDelete.find(d => d.id === c.id));
 
@@ -1769,7 +1769,7 @@
             </div>
             <div class="clip-file">
               <span class="clip-file-icon">📄</span>
-              <a class="clip-file-name" href="api.php?action=download&filename=${encodeURIComponent(clip.filename)}&original=${encodeURIComponent(clip.originalName)}" download="${escapeHtml(clip.originalName)}">${escapeHtml(clip.originalName)}</a>
+              <a class="clip-file-name" href="api?action=download&filename=${encodeURIComponent(clip.filename)}&original=${encodeURIComponent(clip.originalName)}" download="${escapeHtml(clip.originalName)}">${escapeHtml(clip.originalName)}</a>
               <span class="clip-file-size">${formatBytes(clip.size)}</span>
             </div>`;
           if (selectedFiles.has(clip.id)) card.querySelector('.file-select-cb').checked = true;
@@ -2028,7 +2028,7 @@
         }).filter(Boolean);
       });
 
-      await fetch('api.php?action=bookmarks', {
+      await fetch('api?action=bookmarks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newBookmarks)
