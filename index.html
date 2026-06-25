@@ -679,6 +679,110 @@
       color: var(--accent);
     }
 
+    /* ── Tags ── */
+    .clip-tag-input-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-top: 0.5rem;
+      border: 1px solid var(--border-2);
+      border-radius: 6px;
+      padding: 0.3rem 0.45rem;
+      background: var(--code-bg);
+    }
+    .clip-tag-input-row:focus-within { border-color: var(--accent); }
+    #tag-input {
+      flex: 1;
+      min-width: 120px;
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 0.8rem;
+      padding: 0.1rem 0.2rem;
+    }
+    #tag-input::placeholder { color: var(--muted); }
+
+    .tag-chips { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
+    .tag-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      background: var(--accent-tint);
+      border: 1px solid var(--accent-tint-border);
+      color: var(--accent);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      padding: 0.1rem 0.55rem;
+      white-space: nowrap;
+    }
+    .tag-chip .tag-chip-x {
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 700;
+      line-height: 1;
+    }
+    .tag-chip .tag-chip-x:hover { color: var(--danger); }
+
+    /* Tags shown on a clip card (click to toggle that filter). */
+    .clip-tags { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+    .clip-tag {
+      cursor: pointer;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      color: var(--muted);
+      border-radius: 999px;
+      font-size: 0.7rem;
+      padding: 0.05rem 0.5rem;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .clip-tag::before { content: "#"; opacity: 0.6; }
+    .clip-tag:hover { color: var(--accent); border-color: var(--accent); }
+    .clip-tag.active { color: var(--accent); border-color: var(--accent); background: var(--accent-tint); }
+
+    /* Tag filter row (derived buttons + AND/OR switch). */
+    .clip-tag-filter {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }
+    .tag-filter-label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .tag-filter-buttons { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; }
+    .tag-filter-btn {
+      background: none;
+      border: 1px solid var(--border-2);
+      border-radius: 999px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.72rem;
+      padding: 0.12rem 0.65rem;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
+    }
+    .tag-filter-btn::before { content: "#"; opacity: 0.5; }
+    .tag-filter-btn:hover { color: var(--text); }
+    .tag-filter-btn.active { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+    .tag-filter-btn .tag-count { opacity: 0.6; margin-left: 0.25rem; font-size: 0.66rem; }
+    .tag-mode-btn {
+      margin-left: auto;
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
+      border-radius: 5px;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.72rem;
+      padding: 0.15rem 0.6rem;
+    }
+    .tag-mode-btn:hover { color: var(--text); border-color: var(--accent); }
+    .tag-mode-btn .tag-mode-val { color: var(--accent); font-weight: 700; }
+
     #help-btn {
       position: fixed;
       bottom: 1.5rem;
@@ -1359,10 +1463,22 @@
         </label>
         <span class="clip-hint">Enter to save · Shift+Enter for new line · shared across all machines</span>
       </div>
+      <div class="clip-tag-input-row">
+        <div id="pending-tags" class="tag-chips"></div>
+        <input type="text" id="tag-input" list="tag-suggestions" autocomplete="off"
+               placeholder="Add tag — Enter or comma (applies to the next text/file)">
+        <datalist id="tag-suggestions"></datalist>
+      </div>
       <div class="clip-filter">
         <button class="filter-btn active" data-filter="both" onclick="setFilter('both')">Both</button>
         <button class="filter-btn" data-filter="text" onclick="setFilter('text')">Text</button>
         <button class="filter-btn" data-filter="files" onclick="setFilter('files')">Files</button>
+      </div>
+      <div class="clip-tag-filter" id="clip-tag-filter" style="display:none">
+        <span class="tag-filter-label">Tags</span>
+        <div id="tag-filter-buttons" class="tag-filter-buttons"></div>
+        <button class="tag-mode-btn" id="tag-mode-toggle" onclick="toggleTagMode()"
+                title="Match ANY (or) vs ALL (and) of the selected tags">Match: <span class="tag-mode-val">ANY</span></button>
       </div>
       <div id="download-bar">
         <button id="download-bar-btn" onclick="downloadSelected()">Download Selected (0)</button>
@@ -1546,13 +1662,15 @@
     async function submitClip() {
       const input = document.getElementById('clip-input');
       const text = input.value.trim();
-      if (!text) return;
+      // Flush a half-typed tag even if there's no clip text yet.
+      if (!text) { if (document.getElementById('tag-input').value.trim()) flushTagInput(); return; }
       input.value = '';
       const todayOnly = document.getElementById('clip-today-only').checked;
+      const tags = takePendingTags();
       const res = await fetch('api?action=clip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, todayOnly })
+        body: JSON.stringify({ text, todayOnly, tags })
       });
       const clip = await res.json();
       config.clips.unshift(clip);
@@ -1560,15 +1678,17 @@
     }
 
     function submitFile(input) {
-      Array.from(input.files).forEach(uploadFile);
+      const tags = takePendingTags();
+      Array.from(input.files).forEach(f => uploadFile(f, tags));
       input.value = '';
     }
 
-    function uploadFile(file) {
+    function uploadFile(file, tags) {
       const todayOnly = document.getElementById('clip-today-only').checked;
       const fd = new FormData();
       fd.append('file', file);
       fd.append('todayOnly', todayOnly ? '1' : '0');
+      if (tags && tags.length) fd.append('tags', JSON.stringify(tags));
 
       const entry = document.createElement('div');
       entry.className = 'upload-entry';
@@ -1625,6 +1745,140 @@
     // ── Filter ────────────────────────────────────────
     let clipFilter = 'both';
     const selectedFiles = new Set();
+
+    // ── Tags ──────────────────────────────────────────
+    let pendingTags = [];                 // tags to attach to the next clip/file
+    const selectedTags = new Set();       // active tag filters (lowercase keys)
+    let tagMode = 'or';                   // 'or' = ANY, 'and' = ALL
+
+    function escAttr(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function normTag(t) { return String(t).trim().slice(0, 80); }
+
+    // Union of tags across all clips, merged case-insensitively, newest-first
+    // (config.clips is newest-first), each with a count.
+    function getAllTags() {
+      const map = new Map(); // key -> { name, count }
+      config.clips.forEach(c => (c.tags || []).forEach(t => {
+        const key = String(t).toLowerCase();
+        if (map.has(key)) map.get(key).count++;
+        else map.set(key, { key, name: t, count: 1 });
+      }));
+      return [...map.values()];
+    }
+    function clipHasTag(clip, key) {
+      return (clip.tags || []).some(t => String(t).toLowerCase() === key);
+    }
+
+    // -- pending tags (for the next created clip) --
+    function renderPendingTags() {
+      document.getElementById('pending-tags').innerHTML = pendingTags.map(t =>
+        `<span class="tag-chip">${escapeHtml(t)}<span class="tag-chip-x" data-tag="${escAttr(t)}">×</span></span>`
+      ).join('');
+    }
+    function addPendingTag(raw) {
+      const t = normTag(raw);
+      if (!t) return;
+      if (!pendingTags.some(x => x.toLowerCase() === t.toLowerCase())) pendingTags.push(t);
+      renderPendingTags();
+    }
+    function flushTagInput() {
+      const el = document.getElementById('tag-input');
+      if (el.value.trim()) { addPendingTag(el.value); el.value = ''; }
+    }
+    // Returns the pending tags (flushing any half-typed value) and clears them.
+    function takePendingTags() {
+      flushTagInput();
+      const tags = pendingTags.slice();
+      pendingTags = [];
+      renderPendingTags();
+      return tags;
+    }
+
+    function updateTagSuggestions() {
+      document.getElementById('tag-suggestions').innerHTML =
+        getAllTags().map(t => `<option value="${escAttr(t.name)}">`).join('');
+    }
+
+    // -- tag filter buttons (derived from existing clips) --
+    function renderTagFilters() {
+      const all = getAllTags();
+      const present = new Set(all.map(t => t.key));
+      // Drop any selected tag whose clips are all gone.
+      for (const k of [...selectedTags]) if (!present.has(k)) selectedTags.delete(k);
+
+      const row = document.getElementById('clip-tag-filter');
+      const box = document.getElementById('tag-filter-buttons');
+      if (!all.length) { row.style.display = 'none'; box.innerHTML = ''; return; }
+      row.style.display = 'flex';
+      box.innerHTML = all.map(t =>
+        `<button class="tag-filter-btn${selectedTags.has(t.key) ? ' active' : ''}" data-tag="${escAttr(t.key)}">` +
+        `${escapeHtml(t.name)}<span class="tag-count">${t.count}</span></button>`
+      ).join('');
+      document.querySelector('#tag-mode-toggle .tag-mode-val').textContent = tagMode === 'and' ? 'ALL' : 'ANY';
+    }
+    function toggleTagFilter(key) {
+      if (selectedTags.has(key)) selectedTags.delete(key); else selectedTags.add(key);
+      persistTagState();
+      renderClips();
+    }
+    function toggleTagMode() {
+      tagMode = tagMode === 'or' ? 'and' : 'or';
+      persistTagState();
+      renderClips();
+    }
+    function persistTagState() {
+      try {
+        localStorage.setItem('clip-tag-mode', tagMode);
+        localStorage.setItem('clip-selected-tags', JSON.stringify([...selectedTags]));
+      } catch (e) {}
+    }
+
+    function initTags() {
+      // Restore persisted filter state.
+      try {
+        const m = localStorage.getItem('clip-tag-mode');
+        if (m === 'and' || m === 'or') tagMode = m;
+        const sel = JSON.parse(localStorage.getItem('clip-selected-tags') || '[]');
+        if (Array.isArray(sel)) sel.forEach(k => selectedTags.add(String(k).toLowerCase()));
+      } catch (e) {}
+
+      const tagInput = document.getElementById('tag-input');
+      tagInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault();
+          addPendingTag(tagInput.value);
+          tagInput.value = '';
+        } else if (e.key === 'Backspace' && !tagInput.value && pendingTags.length) {
+          pendingTags.pop();
+          renderPendingTags();
+        }
+      });
+      tagInput.addEventListener('blur', flushTagInput);
+      // Native datalist pick fires 'input' with the full value — commit it.
+      tagInput.addEventListener('input', () => {
+        const opts = [...document.querySelectorAll('#tag-suggestions option')].map(o => o.value);
+        if (opts.includes(tagInput.value)) { addPendingTag(tagInput.value); tagInput.value = ''; }
+      });
+
+      document.getElementById('pending-tags').addEventListener('click', e => {
+        const x = e.target.closest('.tag-chip-x');
+        if (!x) return;
+        const t = x.dataset.tag;
+        pendingTags = pendingTags.filter(p => p !== t);
+        renderPendingTags();
+      });
+      document.getElementById('tag-filter-buttons').addEventListener('click', e => {
+        const b = e.target.closest('.tag-filter-btn');
+        if (b) toggleTagFilter(b.dataset.tag);
+      });
+      document.getElementById('clip-list').addEventListener('click', e => {
+        const t = e.target.closest('.clip-tag');
+        if (t) toggleTagFilter(t.dataset.tag);
+      });
+    }
 
     function toggleFileSelect(id, checked) {
       checked ? selectedFiles.add(id) : selectedFiles.delete(id);
@@ -1689,7 +1943,8 @@
     clipSection.addEventListener('drop', e => {
       e.preventDefault();
       clipSection.classList.remove('drag-over');
-      Array.from(e.dataTransfer.files).forEach(uploadFile);
+      const tags = takePendingTags();
+      Array.from(e.dataTransfer.files).forEach(f => uploadFile(f, tags));
     });
 
     // ── Help Modal ────────────────────────────────────
@@ -1950,16 +2205,36 @@
       });
       if (toDelete.length) config.clips = config.clips.filter(c => !toDelete.find(d => d.id === c.id));
 
+      // Drop any selected tag filter whose clips are all gone, BEFORE filtering,
+      // so the list stays correct the moment the last tagged clip is removed.
+      const presentKeys = new Set();
+      config.clips.forEach(c => (c.tags || []).forEach(t => presentKeys.add(String(t).toLowerCase())));
+      for (const k of [...selectedTags]) if (!presentKeys.has(k)) selectedTags.delete(k);
+
       list.innerHTML = '';
       config.clips.filter(clip => {
-        if (clipFilter === 'text')  return clip.type !== 'file';
-        if (clipFilter === 'files') return clip.type === 'file';
+        if (clipFilter === 'text'  && clip.type === 'file') return false;
+        if (clipFilter === 'files' && clip.type !== 'file') return false;
+        if (selectedTags.size) {
+          if (tagMode === 'and') {
+            for (const k of selectedTags) if (!clipHasTag(clip, k)) return false;
+          } else {
+            let any = false;
+            for (const k of selectedTags) if (clipHasTag(clip, k)) { any = true; break; }
+            if (!any) return false;
+          }
+        }
         return true;
       }).forEach(clip => {
         const card = document.createElement('div');
         card.className = 'clip-card' + (clip.todayOnly ? ' today-only-card' : '');
 
         const badge = clip.todayOnly ? '<span class="clip-today-badge">today</span>' : '';
+        const tagsHtml = (clip.tags && clip.tags.length)
+          ? `<div class="clip-tags">${clip.tags.map(t =>
+              `<span class="clip-tag${selectedTags.has(String(t).toLowerCase()) ? ' active' : ''}" data-tag="${escAttr(String(t).toLowerCase())}">${escapeHtml(t)}</span>`
+            ).join('')}</div>`
+          : '';
 
         if (clip.type === 'file') {
           card.innerHTML = `
@@ -1977,7 +2252,8 @@
               <span class="clip-file-icon">📄</span>
               <a class="clip-file-name" href="api?action=download&filename=${encodeURIComponent(clip.filename)}&original=${encodeURIComponent(clip.originalName)}" download="${escapeHtml(clip.originalName)}">${escapeHtml(clip.originalName)}</a>
               <span class="clip-file-size">${formatBytes(clip.size)}</span>
-            </div>`;
+            </div>
+            ${tagsHtml}`;
           if (selectedFiles.has(clip.id)) card.querySelector('.file-select-cb').checked = true;
         } else {
           card.innerHTML = `
@@ -1992,10 +2268,14 @@
                 <button class="clip-del-btn" onclick="deleteClip('${clip.id}')">✕</button>
               </div>
             </div>
-            <pre class="clip-preview">${linkify(clip.text)}</pre>`;
+            <pre class="clip-preview">${linkify(clip.text)}</pre>
+            ${tagsHtml}`;
         }
         list.appendChild(card);
       });
+
+      renderTagFilters();
+      updateTagSuggestions();
     }
 
     function escapeHtml(str) {
@@ -2342,6 +2622,7 @@
 
       applyTheme(getThemePref());
       setupConfigReorder();
+      initTags();
       loadConfig();
       setInterval(runPings, 30000);
       startLiveSync();

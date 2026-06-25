@@ -122,7 +122,11 @@ Your choice is saved in the browser (per device) and applied instantly.
 1. Type or paste text in the **Clipboard** section (Enter to save, Shift+Enter for a newline).
 2. Check **Today only** to auto-delete a clip after today.
 3. Click **📎 Attach** (or drag-and-drop) to upload files of any size.
-4. Use **View / Copy / ✕** on each entry; filter by **Text / Files / Both**.
+4. **Tags** (optional): type in the *Add tag* field — Enter or comma to add a chip; recent tags
+   autocomplete. Tags apply to the next text/file you save (0..unlimited per entry).
+5. Use **View / Copy / ✕** on each entry; filter by **Text / Files / Both**.
+6. **Filter by tag:** click the tag buttons (they appear automatically and disappear when no clip
+   uses a tag). The **Match: ANY/ALL** toggle switches between OR and AND across selected tags.
 
 ### Search
 - The search bar filters bookmarks by name or category.
@@ -164,15 +168,17 @@ a **locator** — an `id`, or `category` + `index`, or `category` + `name`.
 ### Clipboard & files
 
 Every clipboard entry (text or file) has a unique `id` (e.g. `clip_abc123`), so an agent can add,
-edit and delete entries reliably.
+edit and delete entries reliably. Entries can carry **tags** (a `tags` array, 0..unlimited) which
+the dashboard turns into filter buttons (with an **ANY/ALL** match toggle).
 
 | Method | Action | Description |
 |--------|--------|-------------|
-| GET    | `clips` | List all clipboard entries with their ids |
-| POST   | `clip` (alias `add-clip`) | Add a text clip |
-| POST   | `add-file` | Add a file clip from JSON (`contentBase64` or `contentText`) — no multipart |
-| POST   | `upload` | Upload a file (multipart; any size) |
-| POST   | `update-clip&id=…` | Edit a clip's `text` and/or `todayOnly` |
+| GET    | `clips` | List all clipboard entries with their ids + tags |
+| GET    | `tags` | Union of all tags in use, with counts |
+| POST   | `clip` (alias `add-clip`) | Add a text clip (optional `tags`) |
+| POST   | `add-file` | Add a file clip from JSON (`contentBase64` or `contentText`, optional `tags`) — no multipart |
+| POST   | `upload` | Upload a file (multipart; any size; optional `tags` field) |
+| POST   | `update-clip&id=…` | Edit a clip's `text`, `todayOnly`, and/or `tags` |
 | POST/DELETE | `delete-clip` (alias `clip`) | Delete a clip by id (removes its file too) |
 | GET    | `download&filename=…&original=…` | Download an attachment |
 

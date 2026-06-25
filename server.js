@@ -83,6 +83,31 @@ function normalizeClips(clips) {
   return { clips, changed };
 }
 
+// Normalize a tags value into a clean string array. Accepts an array, a JSON
+// array string, or a comma-separated string. Trims, drops empties, caps length,
+// and dedupes case-insensitively (keeping the first-seen casing). 0..unlimited.
+function parseTags(input) {
+  let arr = [];
+  if (Array.isArray(input)) {
+    arr = input;
+  } else if (typeof input === 'string') {
+    const s = input.trim();
+    if (s.startsWith('[')) { try { const j = JSON.parse(s); if (Array.isArray(j)) arr = j; } catch (e) {} }
+    if (!arr.length && s) arr = s.split(',');
+  }
+  const out = [];
+  const seen = new Set();
+  for (let t of arr) {
+    t = String(t).trim().slice(0, 80);
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 // Ensure every bookmark has a unique stable `id`. Returns whether anything
 // changed so callers can avoid pointless writes (and version bumps).
 function normalizeBookmarks(bookmarks) {
@@ -617,6 +642,20 @@ async function handleApi(req, res, urlObj) {
     return;
   }
 
+  // ── Clipboard: tag union (with counts) ──────────────────────────────────
+  if (method === 'GET' && action === 'tags') {
+    const counts = new Map(); // lowercase key -> { name, count }
+    for (const c of config.clips) {
+      for (const t of (c.tags || [])) {
+        const key = String(t).toLowerCase();
+        if (counts.has(key)) counts.get(key).count++;
+        else counts.set(key, { name: t, count: 1 });
+      }
+    }
+    sendJson(res, 200, { tags: [...counts.values()], version: config.version || 0 });
+    return;
+  }
+
   // ── Clipboard: add a text clip ──────────────────────────────────────────
   if (method === 'POST' && (action === 'clip' || action === 'add-clip')) {
     const body = await readJsonBody(req) || {};
@@ -630,6 +669,8 @@ async function handleApi(req, res, urlObj) {
       todayOnly,
       createdAt: new Date().toISOString(),
     };
+    const tags = parseTags(body.tags);
+    if (tags.length) clip.tags = tags;
     config.clips.unshift(clip);
     writeConfig(config);
     sendJson(res, 200, clip);
@@ -670,6 +711,8 @@ async function handleApi(req, res, urlObj) {
       todayOnly,
       createdAt: new Date().toISOString(),
     };
+    const tags = parseTags(body.tags);
+    if (tags.length) clip.tags = tags;
     config.clips.unshift(clip);
     writeConfig(config);
     sendJson(res, 200, clip);
@@ -710,6 +753,8 @@ async function handleApi(req, res, urlObj) {
       todayOnly,
       createdAt: new Date().toISOString(),
     };
+    const tags = parseTags(parsed.fields.tags);
+    if (tags.length) clip.tags = tags;
     const fresh = readConfig();
     fresh.clips.unshift(clip);
     writeConfig(fresh);
@@ -722,8 +767,8 @@ async function handleApi(req, res, urlObj) {
     const body = await readJsonBody(req) || {};
     const id = urlObj.searchParams.get('id') || body.id || '';
     if (!id) { sendJson(res, 400, { error: 'Missing id' }); return; }
-    if (body.text === undefined && body.todayOnly === undefined) {
-      sendJson(res, 400, { error: 'Provide text and/or todayOnly to update' });
+    if (body.text === undefined && body.todayOnly === undefined && body.tags === undefined) {
+      sendJson(res, 400, { error: 'Provide text, todayOnly, and/or tags to update' });
       return;
     }
     const clip = config.clips.find((c) => idsMatch(c.id, id));
@@ -733,6 +778,10 @@ async function handleApi(req, res, urlObj) {
       clip.text = String(body.text);
     }
     if (body.todayOnly !== undefined) clip.todayOnly = !!body.todayOnly;
+    if (body.tags !== undefined) {
+      const tags = parseTags(body.tags);
+      if (tags.length) clip.tags = tags; else delete clip.tags;
+    }
     writeConfig(config);
     sendJson(res, 200, { ok: true, clip });
     return;

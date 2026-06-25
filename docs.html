@@ -108,6 +108,7 @@
 
     <div class="grp">Clipboard &amp; Files</div>
     <a href="#get-clips">GET clips</a>
+    <a href="#get-tags">GET tags</a>
     <a href="#clip">clip (text)</a>
     <a href="#add-file">add-file (JSON)</a>
     <a href="#upload">upload (multipart)</a>
@@ -342,6 +343,13 @@ curl -X DELETE "$BASE/api?action=delete-bookmark&category=ARRs&name=Sonarr"
     has a unique <code>id</code> (e.g. <code>clip_…</code>) so an agent can add, edit and delete entries
     reliably. A clip with <code>todayOnly: true</code> is auto-removed after the day it was created.</p>
 
+    <p>Any entry can carry <strong>tags</strong> — a <code>tags</code> array of strings (0..unlimited),
+    accepted as an array, a comma-separated string, or a JSON array string. Tags are trimmed and
+    de-duplicated case-insensitively. The dashboard derives its tag filter buttons from the tags
+    currently in use, so adding a tag surfaces a new filter and removing the last clip with a tag
+    drops it. Pass <code>tags</code> to <a href="#clip">clip</a>, <a href="#add-file">add-file</a>,
+    <a href="#upload">upload</a>, or <a href="#update-clip">update-clip</a>.</p>
+
     <div class="note"><strong>Agent loop:</strong> <a href="#get-clips">GET&nbsp;clips</a> to read entries
     and their ids, then add / <a href="#update-clip">edit</a> / <a href="#delete-clip">delete</a> by id.
     Files can be posted as JSON (<a href="#add-file">add-file</a>) — no multipart needed.</div>
@@ -350,17 +358,26 @@ curl -X DELETE "$BASE/api?action=delete-bookmark&category=ARRs&name=Sonarr"
       <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=clips</span></div>
       <p class="desc">List all clipboard entries (text and file) with their ids + the current version.</p>
       <pre><code>curl "$BASE/api?action=clips"
-→ { "clips": [ { "id": "clip_…", "type": "text", "text": "…", "todayOnly": false, "createdAt": "…" } ], "version": 7 }</code></pre>
+→ { "clips": [ { "id": "clip_…", "type": "text", "text": "…", "tags": ["work"], "todayOnly": false, "createdAt": "…" } ], "version": 7 }</code></pre>
+    </div>
+
+    <div class="ep" id="get-tags">
+      <div class="ep-head"><span class="m GET">GET</span> <span class="path">/api?action=tags</span></div>
+      <p class="desc">The union of all tags currently in use, each with a usage count (merged
+      case-insensitively). Handy for showing an agent what tags already exist.</p>
+      <pre><code>curl "$BASE/api?action=tags"
+→ { "tags": [ { "name": "work", "count": 3 }, { "name": "urgent", "count": 1 } ], "version": 7 }</code></pre>
     </div>
 
     <div class="ep" id="clip">
       <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=clip</span> <span class="pill">alias: add-clip</span></div>
-      <p class="desc">Add a text clip. Returns the created clip, including its unique <code>id</code>.</p>
+      <p class="desc">Add a text clip. Returns the created clip, including its unique <code>id</code>.
+      Optional <code>tags</code> (array or comma string).</p>
       <pre><code>curl -X POST "$BASE/api?action=clip" \
   -H "Content-Type: application/json" \
-  -d '{ "text": "shared note", "todayOnly": false }'
+  -d '{ "text": "shared note", "tags": ["work", "notes"], "todayOnly": false }'
 
-→ { "id": "clip_…", "type": "text", "text": "shared note", "todayOnly": false, "createdAt": "…" }</code></pre>
+→ { "id": "clip_…", "type": "text", "text": "shared note", "tags": ["work","notes"], "todayOnly": false, "createdAt": "…" }</code></pre>
     </div>
 
     <div class="ep" id="add-file">
@@ -395,12 +412,13 @@ curl -X DELETE "$BASE/api?action=delete-bookmark&category=ARRs&name=Sonarr"
 
     <div class="ep" id="update-clip">
       <div class="ep-head"><span class="m POST">POST</span> <span class="path">/api?action=update-clip&amp;id=ID</span></div>
-      <p class="desc">Edit a clip by id. Update a text clip's <code>text</code> and/or any clip's <code>todayOnly</code>.
-      The id may be in the query or the JSON body.</p>
+      <p class="desc">Edit a clip by id: a text clip's <code>text</code>, and/or any clip's
+      <code>todayOnly</code> or <code>tags</code> (pass <code>[]</code> to clear tags). The id may be in
+      the query or the JSON body.</p>
       <pre><code>curl -X POST "$BASE/api?action=update-clip&id=clip_abc" \
-  -H "Content-Type: application/json" -d '{ "text": "updated note", "todayOnly": true }'
+  -H "Content-Type: application/json" -d '{ "text": "updated note", "tags": ["work","urgent"] }'
 
-→ { "ok": true, "clip": { "id": "clip_abc", "type": "text", "text": "updated note", … } }</code></pre>
+→ { "ok": true, "clip": { "id": "clip_abc", "type": "text", "text": "updated note", "tags": ["work","urgent"], … } }</code></pre>
     </div>
 
     <div class="ep" id="delete-clip">
