@@ -59,12 +59,28 @@ function idsMatch(a, b) {
   return String(a) === String(b);
 }
 
-function newId() {
-  return String(Date.now());
-}
-
 function newBookmarkId() {
   return 'bm_' + Date.now().toString(36) + crypto.randomBytes(3).toString('hex');
+}
+
+// Clip ids carry random entropy so rapid AI-driven posts never collide.
+function newClipId() {
+  return 'clip_' + Date.now().toString(36) + crypto.randomBytes(4).toString('hex');
+}
+
+// Ensure every clip has a unique id. Returns whether anything changed so the
+// caller can avoid a needless write (and version bump).
+function normalizeClips(clips) {
+  if (!Array.isArray(clips)) return { clips: [], changed: clips !== undefined && clips !== null };
+  let changed = false;
+  const seen = new Set();
+  for (const c of clips) {
+    if (c && typeof c === 'object') {
+      if (!c.id || seen.has(String(c.id))) { c.id = newClipId(); changed = true; }
+      seen.add(String(c.id));
+    }
+  }
+  return { clips, changed };
 }
 
 // Ensure every bookmark has a unique stable `id`. Returns whether anything
@@ -595,15 +611,62 @@ async function handleApi(req, res, urlObj) {
     return;
   }
 
-  if (method === 'POST' && action === 'clip') {
+  // ── Clipboard: list ─────────────────────────────────────────────────────
+  if (method === 'GET' && action === 'clips') {
+    sendJson(res, 200, { clips: config.clips, version: config.version || 0 });
+    return;
+  }
+
+  // ── Clipboard: add a text clip ──────────────────────────────────────────
+  if (method === 'POST' && (action === 'clip' || action === 'add-clip')) {
     const body = await readJsonBody(req) || {};
     const text = (body.text || '').trim();
     const todayOnly = !!body.todayOnly;
     if (!text) { sendJson(res, 400, { error: 'No text provided' }); return; }
     const clip = {
-      id: newId(),
+      id: newClipId(),
       type: 'text',
       text,
+      todayOnly,
+      createdAt: new Date().toISOString(),
+    };
+    config.clips.unshift(clip);
+    writeConfig(config);
+    sendJson(res, 200, clip);
+    return;
+  }
+
+  // ── Clipboard: add a file clip from JSON (base64 or plain text) ──────────
+  // Agent-friendly alternative to multipart `upload`.
+  if (method === 'POST' && action === 'add-file') {
+    const body = await readJsonBody(req) || {};
+    const rawName = String(body.filename || '').trim();
+    if (!rawName) { sendJson(res, 400, { error: 'filename is required' }); return; }
+    let buf;
+    if (body.contentBase64 !== undefined && body.contentBase64 !== null) {
+      try {
+        buf = Buffer.from(String(body.contentBase64), 'base64');
+      } catch (e) { sendJson(res, 400, { error: 'Invalid base64 content' }); return; }
+    } else if (body.contentText !== undefined && body.contentText !== null) {
+      buf = Buffer.from(String(body.contentText), 'utf8');
+    } else {
+      sendJson(res, 400, { error: 'Provide contentBase64 or contentText' }); return;
+    }
+    const todayOnly = !!body.todayOnly;
+    const id = newClipId();
+    const safeOriginal = sanitizeName(rawName);
+    const safeName = id + '_' + safeOriginal;
+    try {
+      fs.writeFileSync(path.join(ATTACH_DIR, safeName), buf);
+    } catch (e) {
+      sendJson(res, 500, { error: 'Failed to save file' }); return;
+    }
+    const clip = {
+      id,
+      type: 'file',
+      filename: safeName,
+      originalName: rawName,
+      size: buf.length,
       todayOnly,
       createdAt: new Date().toISOString(),
     };
@@ -627,7 +690,7 @@ async function handleApi(req, res, urlObj) {
     }
     if (!parsed.file) { sendJson(res, 400, { error: 'No file received' }); return; }
     const todayOnly = (parsed.fields.todayOnly || '0') === '1';
-    const id = newId();
+    const id = newClipId();
     const safeOriginal = sanitizeName(parsed.file.filename || 'file');
     const safeName = id + '_' + safeOriginal;
     const dest = path.join(ATTACH_DIR, safeName);
@@ -654,53 +717,61 @@ async function handleApi(req, res, urlObj) {
     return;
   }
 
+  // ── Clipboard: edit a clip (text and/or todayOnly) ──────────────────────
   if (method === 'POST' && action === 'update-clip') {
-    const id = urlObj.searchParams.get('id') || '';
     const body = await readJsonBody(req) || {};
-    const text = body.text;
-    if (!id || text === undefined || text === null) {
-      sendJson(res, 400, { error: 'Missing id or text' });
+    const id = urlObj.searchParams.get('id') || body.id || '';
+    if (!id) { sendJson(res, 400, { error: 'Missing id' }); return; }
+    if (body.text === undefined && body.todayOnly === undefined) {
+      sendJson(res, 400, { error: 'Provide text and/or todayOnly to update' });
       return;
     }
-    let found = false;
-    for (const clip of config.clips) {
-      if (idsMatch(clip.id, id) && clip.type === 'text') {
-        clip.text = text;
-        found = true;
-        break;
-      }
+    const clip = config.clips.find((c) => idsMatch(c.id, id));
+    if (!clip) { sendJson(res, 404, { error: 'Clip not found' }); return; }
+    if (body.text !== undefined) {
+      if (clip.type !== 'text') { sendJson(res, 400, { error: 'Only text clips support a text edit' }); return; }
+      clip.text = String(body.text);
     }
-    if (!found) { sendJson(res, 404, { error: 'Clip not found' }); return; }
+    if (body.todayOnly !== undefined) clip.todayOnly = !!body.todayOnly;
     writeConfig(config);
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, clip });
     return;
   }
 
-  if (method === 'DELETE' && action === 'clip') {
-    const id = urlObj.searchParams.get('id') || '';
-    const filename = urlObj.searchParams.get('filename') || '';
+  // ── Clipboard: delete a clip (and its file, if any) ─────────────────────
+  if ((method === 'DELETE' || method === 'POST') && (action === 'clip' || action === 'delete-clip')) {
+    const body = (method === 'POST') ? (await readJsonBody(req) || {}) : {};
+    const id = urlObj.searchParams.get('id') || body.id || '';
+    if (!id) { sendJson(res, 400, { error: 'Missing id' }); return; }
+    const target = config.clips.find((c) => idsMatch(c.id, id));
+    // Remove the backing file for file clips (explicit filename wins, else the
+    // one recorded on the clip).
+    const filename = urlObj.searchParams.get('filename') || body.filename || (target && target.filename) || '';
     if (filename) {
-      const safe = path.basename(filename);
-      const p = path.join(ATTACH_DIR, safe);
+      const p = path.join(ATTACH_DIR, path.basename(filename));
       if (fs.existsSync(p)) { try { fs.unlinkSync(p); } catch (_) {} }
     }
+    if (!target) { sendJson(res, 404, { error: 'Clip not found' }); return; }
     config.clips = config.clips.filter((c) => !idsMatch(c.id, id));
     writeConfig(config);
-    sendJson(res, 200, { ok: true });
+    sendJson(res, 200, { ok: true, removed: target });
     return;
   }
 
   sendJson(res, 404, { error: 'Unknown action' });
 }
 
-// ── One-time migration: backfill stable bookmark ids ────────────────────────
+// ── One-time migration: backfill stable bookmark & clip ids ─────────────────
 (() => {
   const cfg = readConfig();
-  const { bookmarks, changed } = normalizeBookmarks(cfg.bookmarks || {});
-  if (changed) {
-    cfg.bookmarks = bookmarks;
+  const bm = normalizeBookmarks(cfg.bookmarks || {});
+  const cl = normalizeClips(cfg.clips || []);
+  if (bm.changed || cl.changed) {
+    cfg.bookmarks = bm.bookmarks;
+    cfg.clips = cl.clips;
     writeConfig(cfg);
-    console.log('Migrated bookmarks: assigned stable ids.');
+    console.log('Migrated config: assigned stable ids' +
+      (bm.changed ? ' [bookmarks]' : '') + (cl.changed ? ' [clips]' : '') + '.');
   }
 })();
 
