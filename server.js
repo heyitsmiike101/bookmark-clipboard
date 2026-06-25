@@ -224,10 +224,15 @@ function serveStatic(req, res, pathname) {
       res.end('Not found');
       return;
     }
-    res.writeHead(200, {
-      'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
+    const ext = path.extname(filePath).toLowerCase();
+    const headers = {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
       'Content-Length': stat.size,
-    });
+    };
+    // Always revalidate the app shell so an updated build is never served from
+    // a stale browser cache (avoids "I updated but nothing changed").
+    if (ext === '.html') headers['Cache-Control'] = 'no-cache';
+    res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   });
 }

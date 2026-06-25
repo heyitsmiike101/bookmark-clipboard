@@ -1857,8 +1857,12 @@
         }
       });
       tagInput.addEventListener('blur', flushTagInput);
-      // Native datalist pick fires 'input' with the full value — commit it.
-      tagInput.addEventListener('input', () => {
+      // Commit a tag when it's chosen from the datalist dropdown (a replacement
+      // input), but NOT while the user is normally typing — so typing a longer
+      // tag that starts with an existing one (e.g. "workflow" when "work"
+      // exists) still works.
+      tagInput.addEventListener('input', e => {
+        if (e.inputType && e.inputType !== 'insertReplacementText') return;
         const opts = [...document.querySelectorAll('#tag-suggestions option')].map(o => o.value);
         if (opts.includes(tagInput.value)) { addPendingTag(tagInput.value); tagInput.value = ''; }
       });
