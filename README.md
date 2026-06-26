@@ -127,6 +127,8 @@ Your choice is saved in the browser (per device) and applied instantly.
 5. Use **View / Copy / ✕** on each entry; filter by **Text / Files / Both**.
 6. **Filter by tag:** click the tag buttons (they appear automatically and disappear when no clip
    uses a tag). The **Match: ANY/ALL** toggle switches between OR and AND across selected tags.
+7. **Markdown:** text clips render as Markdown (headings, **bold**, *italic*, lists, quotes, links,
+   `code`, code blocks). Click **View → Edit** for a formatting toolbar and a **Preview / Raw** toggle.
 
 ### Search
 - The search bar filters bookmarks by name or category.

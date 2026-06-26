@@ -1167,6 +1167,41 @@
 
     #clip-expand-ta:focus { border-color: var(--accent); }
 
+    /* ── Rendered markdown ── */
+    .md { white-space: normal; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .md > :first-child { margin-top: 0; }
+    .md > :last-child { margin-bottom: 0; }
+    .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 0.6em 0 0.3em; line-height: 1.25; color: var(--text); font-weight: 700; }
+    .md h1 { font-size: 1.5em; } .md h2 { font-size: 1.3em; } .md h3 { font-size: 1.15em; }
+    .md p { margin: 0.5em 0; }
+    .md ul, .md ol { margin: 0.4em 0; padding-left: 1.4em; }
+    .md li { margin: 0.15em 0; }
+    .md blockquote { margin: 0.5em 0; padding: 0.15em 0.8em; border-left: 3px solid var(--border-3); color: var(--muted); }
+    .md code { background: var(--surface-2); border-radius: 4px; padding: 0.1em 0.35em; font-family: "Cascadia Code", "Consolas", monospace; font-size: 0.88em; }
+    .md pre.md-code { background: var(--code-bg); border: 1px solid var(--inset-border); border-radius: 6px; padding: 0.7em 0.9em; overflow-x: auto; margin: 0.5em 0; }
+    .md pre.md-code code { background: none; padding: 0; font-size: 0.85em; }
+    .md a { color: var(--accent); text-decoration: none; }
+    .md a:hover { text-decoration: underline; color: var(--accent-hover); }
+    .md hr { border: none; border-top: 1px solid var(--border-3); margin: 0.8em 0; }
+    .md strong { font-weight: 700; } .md em { font-style: italic; }
+    /* compact markdown inside the small card preview */
+    .clip-preview.md { font-size: 0.82rem; }
+    .clip-preview.md h1, .clip-preview.md h2, .clip-preview.md h3 { font-size: 0.95rem; margin: 0.2em 0; }
+    .clip-preview.md p, .clip-preview.md ul, .clip-preview.md ol, .clip-preview.md blockquote { margin: 0.2em 0; }
+    .clip-preview.md pre.md-code { margin: 0.2em 0; padding: 0.3em 0.5em; }
+
+    /* ── Markdown editor toolbar ── */
+    #md-toolbar { display: none; gap: 0.3rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.6rem; }
+    #md-toolbar.show { display: flex; }
+    .md-tool {
+      background: var(--surface-2); border: 1px solid var(--border-2); color: var(--text);
+      border-radius: 6px; padding: 0.3rem 0.55rem; cursor: pointer; font-size: 0.82rem;
+      font-family: inherit; line-height: 1; min-width: 30px;
+    }
+    .md-tool:hover { border-color: var(--accent); color: var(--accent); }
+    .md-tool.active { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+    .md-raw-toggle { margin-left: auto; }
+
     #clip-expand-footer {
       display: flex;
       gap: 0.6rem;
@@ -1529,7 +1564,18 @@
         <button class="modal-close" onclick="closeClipExpand()">✕</button>
       </div>
       <div id="clip-expand-body">
-        <pre id="clip-expand-pre" class="clip-expand-pre"></pre>
+        <div id="md-toolbar">
+          <button type="button" class="md-tool" data-md="bold" title="Bold"><b>B</b></button>
+          <button type="button" class="md-tool" data-md="italic" title="Italic"><i>I</i></button>
+          <button type="button" class="md-tool" data-md="heading" title="Heading">H</button>
+          <button type="button" class="md-tool" data-md="ul" title="Bulleted list">•&nbsp;List</button>
+          <button type="button" class="md-tool" data-md="ol" title="Numbered list">1.</button>
+          <button type="button" class="md-tool" data-md="quote" title="Quote">❝</button>
+          <button type="button" class="md-tool" data-md="code" title="Inline code">&lt;/&gt;</button>
+          <button type="button" class="md-tool" data-md="link" title="Link">🔗</button>
+          <button type="button" class="md-tool md-raw-toggle" id="md-preview-toggle" title="Toggle raw / preview">👁 Preview</button>
+        </div>
+        <div id="clip-expand-pre" class="clip-expand-pre md"></div>
         <textarea id="clip-expand-ta" spellcheck="false" style="display:none"></textarea>
       </div>
       <div id="clip-expand-footer">
@@ -1898,6 +1944,13 @@
         const t = e.target.closest('.clip-tag');
         if (t) toggleTagFilter(t.dataset.tag);
       });
+      // Markdown editor toolbar (clip expand modal)
+      document.getElementById('md-toolbar').addEventListener('click', e => {
+        const b = e.target.closest('.md-tool');
+        if (!b) return;
+        if (b.id === 'md-preview-toggle') toggleMdPreview();
+        else mdEditAction(b.dataset.md);
+      });
     }
 
     function toggleFileSelect(id, checked) {
@@ -2008,6 +2061,132 @@
       return parts.join('');
     }
 
+    // ── Markdown (self-contained, no external libs) ────
+    // Renders a safe subset to HTML. Everything is HTML-escaped before
+    // formatting, and link URLs are restricted to http(s)/mailto, so clip
+    // content (from users or the API) can't inject markup.
+    function renderMarkdown(src) {
+      const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const safeUrl = u => /^(https?:\/\/|mailto:|\/)/i.test(u) ? u.replace(/"/g, '%22') : '#';
+
+      function inline(raw) {
+        let t = esc(raw);
+        const codes = [];
+        // protect inline code from other inline rules
+        t = t.replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return ' ' + (codes.length - 1) + ' '; });
+        // images ![alt](url) -> link (kept simple; no remote image loading)
+        t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) =>
+          `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${alt || 'image'}</a>`);
+        // links [text](url)
+        t = t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) =>
+          `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${txt}</a>`);
+        t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+        t = t.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
+        t = t.replace(/(^|[^_])_([^_\s][^_]*)_/g, '$1<em>$2</em>');
+        t = t.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+        // bare URL autolink (not already inside an href="...")
+        t = t.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre, url) => {
+          let tail = ''; const mm = url.match(/[.,;:!?)'"\]]+$/);
+          if (mm) { tail = mm[0]; url = url.slice(0, -tail.length); }
+          return `${pre}<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+        });
+        t = t.replace(/ (\d+) /g, (m, i) => `<code>${esc(codes[i])}</code>`);
+        return t;
+      }
+
+      const lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
+      let html = '', i = 0;
+      const isSpecial = l => /^(#{1,6}\s|```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(l) || /^\s*([-*_])\1\1[-*_\s]*$/.test(l);
+      while (i < lines.length) {
+        const line = lines[i];
+        if (/^```/.test(line)) {
+          i++; const buf = [];
+          while (i < lines.length && !/^```/.test(lines[i])) { buf.push(lines[i]); i++; }
+          i++;
+          html += `<pre class="md-code"><code>${esc(buf.join('\n'))}</code></pre>`;
+          continue;
+        }
+        if (/^\s*([-*_])\1\1[-*_\s]*$/.test(line)) { html += '<hr>'; i++; continue; }
+        const h = line.match(/^(#{1,6})\s+(.*)$/);
+        if (h) { const lvl = h[1].length; html += `<h${lvl}>${inline(h[2])}</h${lvl}>`; i++; continue; }
+        if (/^\s*>\s?/.test(line)) {
+          const buf = [];
+          while (i < lines.length && /^\s*>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+          html += `<blockquote>${renderMarkdown(buf.join('\n'))}</blockquote>`;
+          continue;
+        }
+        if (/^\s*[-*+]\s+/.test(line)) {
+          const buf = [];
+          while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*[-*+]\s+/, '')); i++; }
+          html += '<ul>' + buf.map(b => `<li>${inline(b)}</li>`).join('') + '</ul>';
+          continue;
+        }
+        if (/^\s*\d+\.\s+/.test(line)) {
+          const buf = [];
+          while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { buf.push(lines[i].replace(/^\s*\d+\.\s+/, '')); i++; }
+          html += '<ol>' + buf.map(b => `<li>${inline(b)}</li>`).join('') + '</ol>';
+          continue;
+        }
+        if (/^\s*$/.test(line)) { i++; continue; }
+        const buf = [line]; i++;
+        while (i < lines.length && !/^\s*$/.test(lines[i]) && !isSpecial(lines[i])) { buf.push(lines[i]); i++; }
+        html += `<p>${inline(buf.join('\n')).replace(/\n/g, '<br>')}</p>`;
+      }
+      return html || '<p></p>';
+    }
+
+    // ── Markdown editor toolbar (in the clip-expand edit mode) ──
+    let mdPreviewing = false;
+    function mdEditAction(action) {
+      const ta = document.getElementById('clip-expand-ta');
+      if (mdPreviewing) toggleMdPreview();   // must be in raw mode to edit
+      ta.focus();
+      const s = ta.selectionStart, e = ta.selectionEnd, val = ta.value, sel = val.slice(s, e);
+      const apply = (text, selStart, selEnd) => {
+        ta.value = val.slice(0, s) + text + val.slice(e);
+        ta.selectionStart = selStart; ta.selectionEnd = selEnd; ta.focus();
+      };
+      const wrap = (b, a, ph) => { const inner = sel || ph; apply(b + inner + a, s + b.length, s + b.length + inner.length); };
+      const prefix = (p) => {
+        let ls = val.lastIndexOf('\n', s - 1) + 1;
+        let le = val.indexOf('\n', e); if (le === -1) le = val.length;
+        const block = val.slice(ls, le).split('\n').map(l => p + l).join('\n');
+        ta.value = val.slice(0, ls) + block + val.slice(le);
+        ta.selectionStart = ls; ta.selectionEnd = ls + block.length; ta.focus();
+      };
+      switch (action) {
+        case 'bold':    wrap('**', '**', 'bold'); break;
+        case 'italic':  wrap('*', '*', 'italic'); break;
+        case 'code':    wrap('`', '`', 'code'); break;
+        case 'heading': prefix('## '); break;
+        case 'ul':      prefix('- '); break;
+        case 'ol':      prefix('1. '); break;
+        case 'quote':   prefix('> '); break;
+        case 'link': {
+          const inner = sel || 'text';
+          apply('[' + inner + '](https://)', s + 1, s + 1 + inner.length);
+          break;
+        }
+      }
+    }
+    function toggleMdPreview() {
+      const ta  = document.getElementById('clip-expand-ta');
+      const pre = document.getElementById('clip-expand-pre');
+      const btn = document.getElementById('md-preview-toggle');
+      mdPreviewing = !mdPreviewing;
+      if (mdPreviewing) {
+        pre.innerHTML = renderMarkdown(ta.value);
+        pre.style.display = ''; ta.style.display = 'none';
+        btn.textContent = '✎ Raw';
+        btn.classList.add('active');
+      } else {
+        pre.style.display = 'none'; ta.style.display = '';
+        btn.textContent = '👁 Preview';
+        btn.classList.remove('active');
+        ta.focus();
+      }
+    }
+
     // ── Clip Expand Modal ──────────────────────────────
     let expandClipId = null;
 
@@ -2016,11 +2195,10 @@
       if (!clip || clip.type === 'file') return;
       expandClipId = id;
 
-      document.getElementById('clip-expand-pre').innerHTML = linkify(clip.text);
       document.getElementById('clip-expand-meta').textContent =
         formatTimestamp(clip.createdAt) + (clip.todayOnly ? '  ·  Today only' : '');
 
-      // Reset to view mode
+      // Reset to view mode (renders markdown)
       setExpandEditMode(false);
 
       const copyBtn = document.getElementById('clip-expand-copy-btn');
@@ -2031,16 +2209,24 @@
     }
 
     function setExpandEditMode(editing) {
-      const pre  = document.getElementById('clip-expand-pre');
-      const ta   = document.getElementById('clip-expand-ta');
+      const pre     = document.getElementById('clip-expand-pre');
+      const ta      = document.getElementById('clip-expand-ta');
+      const toolbar = document.getElementById('md-toolbar');
+      const toggle  = document.getElementById('md-preview-toggle');
       const editBtn   = document.getElementById('clip-expand-edit-btn');
       const saveBtn   = document.getElementById('clip-expand-save-btn');
       const cancelBtn = document.getElementById('clip-expand-cancel-btn');
+      const clip = config.clips.find(c => c.id === expandClipId);
+
+      // Always reset the preview toggle to "raw editing" baseline.
+      mdPreviewing = false;
+      toggle.textContent = '👁 Preview';
+      toggle.classList.remove('active');
 
       if (editing) {
-        const clip = config.clips.find(c => c.id === expandClipId);
         ta.value = clip ? clip.text : '';
         ta.dataset.original = ta.value;
+        toolbar.classList.add('show');
         pre.style.display  = 'none';
         ta.style.display   = '';
         editBtn.style.display   = 'none';
@@ -2050,6 +2236,8 @@
         cancelBtn.style.display = '';
         ta.focus();
       } else {
+        pre.innerHTML = renderMarkdown(clip ? clip.text : '');
+        toolbar.classList.remove('show');
         pre.style.display  = '';
         ta.style.display   = 'none';
         editBtn.style.display   = '';
@@ -2103,8 +2291,7 @@
       .then(data => {
         if (!data.ok) throw new Error(data.error || 'Unknown error');
         clip.text = newText;
-        document.getElementById('clip-expand-pre').innerHTML = linkify(newText);
-        setExpandEditMode(false);
+        setExpandEditMode(false);   // re-renders the markdown view
         renderClips();
         status.textContent = 'Saved!';
         status.style.color = 'var(--accent)';
@@ -2288,7 +2475,7 @@
                 <button class="clip-del-btn" onclick="deleteClip('${clip.id}')">✕</button>
               </div>
             </div>
-            <pre class="clip-preview">${linkify(clip.text)}</pre>
+            <div class="clip-preview md">${renderMarkdown(clip.text)}</div>
             ${tagsHtml}`;
         }
         list.appendChild(card);
