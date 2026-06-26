@@ -1524,6 +1524,8 @@
       <div class="clip-tag-filter" id="clip-tag-filter" style="display:none">
         <span class="tag-filter-label">Tags</span>
         <div id="tag-filter-buttons" class="tag-filter-buttons"></div>
+        <button class="tag-mode-btn" id="tag-clear-btn" onclick="clearTagFilters()"
+                title="Clear all selected tag filters" style="display:none">✕ Clear</button>
         <button class="tag-mode-btn" id="tag-mode-toggle" onclick="toggleTagMode()"
                 title="Match ANY (or) vs ALL (and) of the selected tags">Match: <span class="tag-mode-val">ANY</span></button>
       </div>
@@ -1878,6 +1880,8 @@
         `${escapeHtml(t.name)}<span class="tag-count">${t.count}</span></button>`
       ).join('');
       document.querySelector('#tag-mode-toggle .tag-mode-val').textContent = tagMode === 'and' ? 'ALL' : 'ANY';
+      // "Clear" only appears when at least one tag filter is active.
+      document.getElementById('tag-clear-btn').style.display = selectedTags.size ? '' : 'none';
     }
     function toggleTagFilter(key) {
       if (selectedTags.has(key)) selectedTags.delete(key); else selectedTags.add(key);
@@ -1889,8 +1893,16 @@
       persistTagState();
       renderClips();
     }
+    function clearTagFilters() {
+      selectedTags.clear();
+      persistTagState();
+      renderClips();
+    }
     function persistTagState() {
-      try { localStorage.setItem('clip-tag-mode', tagMode); } catch (e) {}
+      try {
+        localStorage.setItem('clip-tag-mode', tagMode);
+        localStorage.setItem('clip-selected-tags', JSON.stringify([...selectedTags]));
+      } catch (e) {}
     }
 
     // After adding a clip, if an active tag filter would hide it, clear the
@@ -1910,13 +1922,14 @@
     }
 
     function initTags() {
-      // Restore only the AND/OR mode. Selected tag filters intentionally do NOT
-      // persist across reloads — a remembered filter would silently hide newly
-      // added clips, looking like "nothing happened" when you add an item.
+      // Restore the AND/OR mode and the remembered tag selection (per device).
+      // A remembered filter that would hide a freshly added clip is auto-cleared
+      // by ensureClipVisible(), so persisting the selection is safe.
       try {
         const m = localStorage.getItem('clip-tag-mode');
         if (m === 'and' || m === 'or') tagMode = m;
-        localStorage.removeItem('clip-selected-tags'); // drop stale persisted filters
+        const sel = JSON.parse(localStorage.getItem('clip-selected-tags') || '[]');
+        if (Array.isArray(sel)) sel.forEach(k => selectedTags.add(String(k).toLowerCase()));
       } catch (e) {}
 
       const tagInput = document.getElementById('tag-input');
