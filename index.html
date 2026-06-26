@@ -1675,6 +1675,7 @@
       const clip = await res.json();
       config.clips.unshift(clip);
       renderClips();
+      ensureClipVisible(clip);
     }
 
     function submitFile(input) {
@@ -1729,6 +1730,7 @@
           if (clip.error) { status.textContent = 'Error: ' + clip.error; return; }
           config.clips.unshift(clip);
           renderClips();
+          ensureClipVisible(clip);
         } catch (e) { status.textContent = 'Parse error'; }
         setTimeout(() => entry.remove(), 2000);
       };
@@ -1830,19 +1832,33 @@
       renderClips();
     }
     function persistTagState() {
-      try {
-        localStorage.setItem('clip-tag-mode', tagMode);
-        localStorage.setItem('clip-selected-tags', JSON.stringify([...selectedTags]));
-      } catch (e) {}
+      try { localStorage.setItem('clip-tag-mode', tagMode); } catch (e) {}
+    }
+
+    // After adding a clip, if an active tag filter would hide it, clear the
+    // filter so the user always sees the item they just created.
+    function clipMatchesFilter(clip) {
+      if (!selectedTags.size) return true;
+      const keys = [...selectedTags];
+      return tagMode === 'and'
+        ? keys.every(k => clipHasTag(clip, k))
+        : keys.some(k => clipHasTag(clip, k));
+    }
+    function ensureClipVisible(clip) {
+      if (selectedTags.size && !clipMatchesFilter(clip)) {
+        selectedTags.clear();
+        renderClips();
+      }
     }
 
     function initTags() {
-      // Restore persisted filter state.
+      // Restore only the AND/OR mode. Selected tag filters intentionally do NOT
+      // persist across reloads — a remembered filter would silently hide newly
+      // added clips, looking like "nothing happened" when you add an item.
       try {
         const m = localStorage.getItem('clip-tag-mode');
         if (m === 'and' || m === 'or') tagMode = m;
-        const sel = JSON.parse(localStorage.getItem('clip-selected-tags') || '[]');
-        if (Array.isArray(sel)) sel.forEach(k => selectedTags.add(String(k).toLowerCase()));
+        localStorage.removeItem('clip-selected-tags'); // drop stale persisted filters
       } catch (e) {}
 
       const tagInput = document.getElementById('tag-input');
