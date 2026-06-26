@@ -533,11 +533,23 @@
       font-size: 0.82rem;
       line-height: 1.45;
       margin: 0;
-      max-height: 52px;
+      max-height: 50vh;            /* grow with content up to half the viewport */
       overflow: hidden;
       padding: 0.4rem 0.6rem;
+      position: relative;
       white-space: pre-wrap;
       word-break: break-word;
+    }
+
+    /* Fade hint shown only when the preview is taller than 50vh (content clipped).
+       Click "View" to open the full, scrollable entry. */
+    .clip-preview.clipped::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 2.4em;
+      background: linear-gradient(transparent, var(--code-bg));
+      pointer-events: none;
     }
 
     .clip-preview a, .clip-expand-pre a {
@@ -2483,7 +2495,20 @@
 
       renderTagFilters();
       updateTagSuggestions();
+
+      // Flag previews taller than the 50vh cap (after layout) so the fade hint
+      // only shows when content is actually cut off. Double rAF = run after the
+      // browser has laid out + painted the new cards.
+      requestAnimationFrame(() => requestAnimationFrame(flagClippedPreviews));
     }
+
+    // Re-evaluated on render and on resize (the 50vh cap moves with the viewport).
+    function flagClippedPreviews() {
+      document.querySelectorAll('#clip-list .clip-preview').forEach(pv => {
+        pv.classList.toggle('clipped', pv.clientHeight > 0 && pv.scrollHeight > pv.clientHeight + 2);
+      });
+    }
+    window.addEventListener('resize', flagClippedPreviews);
 
     function escapeHtml(str) {
       if (str == null) return '';
