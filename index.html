@@ -704,7 +704,7 @@
       background: var(--code-bg);
     }
     .clip-tag-input-row:focus-within { border-color: var(--accent); }
-    #tag-input {
+    .clip-tag-input-row input[type="text"] {
       flex: 1;
       min-width: 120px;
       background: none;
@@ -714,7 +714,7 @@
       font-size: 0.8rem;
       padding: 0.1rem 0.2rem;
     }
-    #tag-input::placeholder { color: var(--muted); }
+    .clip-tag-input-row input[type="text"]::placeholder { color: var(--muted); }
 
     .tag-chips { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; }
     .tag-chip {
@@ -1159,6 +1159,9 @@
       word-break: break-word;
       overflow-y: auto;
     }
+    /* The rendered preview doubles as the editor (contenteditable). */
+    .clip-expand-pre[contenteditable="true"] { cursor: text; outline: none; min-height: 5rem; }
+    .clip-expand-pre[contenteditable="true"]:focus { border-color: var(--accent); }
 
     #clip-expand-ta {
       flex: 1;
@@ -1589,6 +1592,10 @@
           <button type="button" class="md-tool" data-md="link" title="Link">🔗</button>
           <button type="button" class="md-tool md-raw-toggle" id="md-preview-toggle" title="Toggle raw / preview">👁 Preview</button>
         </div>
+        <div class="clip-tag-input-row" id="expand-tag-row" style="margin:0 0 0.6rem">
+          <div id="expand-tag-chips" class="tag-chips"></div>
+          <input type="text" id="expand-tag-input" list="tag-suggestions" autocomplete="off" placeholder="Add tag…">
+        </div>
         <div id="clip-expand-pre" class="clip-expand-pre md"></div>
         <textarea id="clip-expand-ta" spellcheck="false" style="display:none"></textarea>
       </div>
@@ -1961,6 +1968,36 @@
         pendingTags = pendingTags.filter(p => p !== t);
         renderPendingTags();
       });
+
+      // Tag editor inside the clip-expand (note) modal.
+      const exTagInput = document.getElementById('expand-tag-input');
+      exTagInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ',') {
+          e.preventDefault(); addExpandTag(exTagInput.value); exTagInput.value = '';
+        } else if (e.key === 'Backspace' && !exTagInput.value && expandTags.length) {
+          expandTags.pop(); renderExpandTags();
+        }
+      });
+      exTagInput.addEventListener('blur', () => {
+        if (exTagInput.value.trim()) { addExpandTag(exTagInput.value); exTagInput.value = ''; }
+      });
+      exTagInput.addEventListener('input', e => {
+        if (e.inputType && e.inputType !== 'insertReplacementText') return;
+        const opts = [...document.querySelectorAll('#tag-suggestions option')].map(o => o.value);
+        if (opts.includes(exTagInput.value)) { addExpandTag(exTagInput.value); exTagInput.value = ''; }
+      });
+      document.getElementById('expand-tag-chips').addEventListener('click', e => {
+        const x = e.target.closest('.tag-chip-x');
+        if (!x) return;
+        const t = x.dataset.tag.toLowerCase();
+        expandTags = expandTags.filter(p => p.toLowerCase() !== t);
+        expandDirty = true;
+        renderExpandTags();
+      });
+      // Any edit in the preview (contenteditable) or the raw textarea marks the
+      // note dirty so it auto-saves on close.
+      document.getElementById('clip-expand-pre').addEventListener('input', () => { expandDirty = true; });
+      document.getElementById('clip-expand-ta').addEventListener('input', () => { expandDirty = true; });
       document.getElementById('tag-filter-buttons').addEventListener('click', e => {
         const b = e.target.closest('.tag-filter-btn');
         if (b) toggleTagFilter(b.dataset.tag);
@@ -2165,6 +2202,7 @@
     function mdEditAction(action) {
       const ta = document.getElementById('clip-expand-ta');
       if (mdPreviewing) toggleMdPreview();   // must be in raw mode to edit
+      expandDirty = true;
       ta.focus();
       const s = ta.selectionStart, e = ta.selectionEnd, val = ta.value, sel = val.slice(s, e);
       const apply = (text, selStart, selEnd) => {
@@ -2188,149 +2226,208 @@
         case 'ol':      prefix('1. '); break;
         case 'quote':   prefix('> '); break;
         case 'link': {
-          const inner = sel || 'text';
-          apply('[' + inner + '](https://)', s + 1, s + 1 + inner.length);
+          if (sel) {
+            // Use the selected text as both the label and the URL (a working
+            // link). Add https:// if it has no scheme. Cursor lands on the URL.
+            const url = /^(https?:\/\/|mailto:)/i.test(sel) ? sel : 'https://' + sel;
+            const urlStart = s + 1 + sel.length + 2;   // after "[sel]("
+            apply('[' + sel + '](' + url + ')', urlStart, urlStart + url.length);
+          } else {
+            apply('[text](https://)', s + 1, s + 5);    // select "text"
+          }
           break;
         }
       }
     }
-    function toggleMdPreview() {
+    // Switch the editor between the editable rendered preview and the raw
+    // markdown textarea, serializing the preview back to markdown on the way out.
+    function setExpandPreview(on) {
       const ta  = document.getElementById('clip-expand-ta');
       const pre = document.getElementById('clip-expand-pre');
       const btn = document.getElementById('md-preview-toggle');
-      mdPreviewing = !mdPreviewing;
-      if (mdPreviewing) {
+      if (on) {
         pre.innerHTML = renderMarkdown(ta.value);
+        pre.contentEditable = 'true';
         pre.style.display = ''; ta.style.display = 'none';
-        btn.textContent = '✎ Raw';
-        btn.classList.add('active');
+        btn.textContent = '✎ Raw'; btn.classList.add('active');
+        mdPreviewing = true;
       } else {
+        if (mdPreviewing) ta.value = htmlToMarkdown(pre);   // keep edits
+        pre.contentEditable = 'false';
         pre.style.display = 'none'; ta.style.display = '';
-        btn.textContent = '👁 Preview';
-        btn.classList.remove('active');
+        btn.textContent = '👁 Preview'; btn.classList.remove('active');
+        mdPreviewing = false;
         ta.focus();
       }
     }
+    function toggleMdPreview() { setExpandPreview(!mdPreviewing); }
 
-    // ── Clip Expand Modal ──────────────────────────────
+    // ── HTML → Markdown (serialize the editable preview back to source) ──
+    function mdInline(node) {
+      let out = '';
+      node.childNodes.forEach(n => {
+        if (n.nodeType === 3) { out += n.nodeValue; return; }
+        if (n.nodeType !== 1) return;
+        const tag = n.tagName.toLowerCase();
+        if (tag === 'br') { out += '\n'; return; }
+        if (tag === 'strong' || tag === 'b') { out += '**' + mdInline(n) + '**'; return; }
+        if (tag === 'em' || tag === 'i') { out += '*' + mdInline(n) + '*'; return; }
+        if (tag === 'del' || tag === 's') { out += '~~' + mdInline(n) + '~~'; return; }
+        if (tag === 'code') { out += '`' + n.textContent + '`'; return; }
+        if (tag === 'a') { out += '[' + mdInline(n) + '](' + (n.getAttribute('href') || '') + ')'; return; }
+        out += mdInline(n);   // span / unknown → passthrough
+      });
+      return out;
+    }
+    function htmlToMarkdown(root) {
+      const lines = [];
+      const blank = () => { if (lines.length && lines[lines.length - 1] !== '') lines.push(''); };
+      const hasBlock = el => el.querySelector('h1,h2,h3,h4,h5,h6,ul,ol,blockquote,pre,hr');
+      Array.from(root.childNodes).forEach(node => {
+        if (node.nodeType === 3) { if (node.nodeValue.trim()) lines.push(node.nodeValue.replace(/\s+/g, ' ').trim()); return; }
+        if (node.nodeType !== 1) return;
+        const tag = node.tagName.toLowerCase();
+        if (/^h[1-6]$/.test(tag)) { blank(); lines.push('#'.repeat(+tag[1]) + ' ' + mdInline(node).trim()); blank(); }
+        else if (tag === 'ul') { blank(); [...node.children].filter(c => c.tagName === 'LI').forEach(li => lines.push('- ' + mdInline(li).trim())); blank(); }
+        else if (tag === 'ol') { blank(); [...node.children].filter(c => c.tagName === 'LI').forEach((li, i) => lines.push((i + 1) + '. ' + mdInline(li).trim())); blank(); }
+        else if (tag === 'blockquote') { blank(); htmlToMarkdown(node).split('\n').forEach(l => lines.push('> ' + l)); blank(); }
+        else if (tag === 'pre') { blank(); lines.push('```'); node.textContent.replace(/\n$/, '').split('\n').forEach(l => lines.push(l)); lines.push('```'); blank(); }
+        else if (tag === 'hr') { blank(); lines.push('---'); blank(); }
+        else if (tag === 'div' || tag === 'p') {
+          if (hasBlock(node)) { htmlToMarkdown(node).split('\n').forEach(l => lines.push(l)); }
+          else lines.push(mdInline(node).replace(/\n+/g, ' ').trim());   // one visual line
+        }
+        else if (tag === 'br') { lines.push(''); }
+        else { const md = mdInline(node).trim(); if (md) lines.push(md); }
+      });
+      return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    }
+
+    // ── Clip Expand Modal (opens directly into an editable preview) ──
     let expandClipId = null;
+    let expandTags = [];
+    let expandDirty = false;   // only auto-save when the user actually edits
+
+    function renderExpandTags() {
+      document.getElementById('expand-tag-chips').innerHTML = expandTags.map(t =>
+        `<span class="tag-chip">${escapeHtml(t)}<span class="tag-chip-x" data-tag="${escAttr(t)}">×</span></span>`).join('');
+    }
+    function addExpandTag(raw) {
+      const t = normTag(raw);
+      if (!t) return;
+      if (!expandTags.some(x => x.toLowerCase() === t.toLowerCase())) expandTags.push(t);
+      expandDirty = true;
+      renderExpandTags();
+    }
+
+    // The current edited text, whichever surface is active.
+    function getExpandText() {
+      return mdPreviewing
+        ? htmlToMarkdown(document.getElementById('clip-expand-pre'))
+        : document.getElementById('clip-expand-ta').value;
+    }
 
     function openClipExpand(id) {
       const clip = config.clips.find(c => c.id === id);
       if (!clip || clip.type === 'file') return;
       expandClipId = id;
+      expandTags = (clip.tags || []).slice();
+      renderExpandTags();
 
       document.getElementById('clip-expand-meta').textContent =
         formatTimestamp(clip.createdAt) + (clip.todayOnly ? '  ·  Today only' : '');
 
-      // Reset to view mode (renders markdown)
-      setExpandEditMode(false);
+      // Open straight into edit mode, showing the editable rendered preview.
+      const ta = document.getElementById('clip-expand-ta');
+      ta.value = clip.text; ta.dataset.original = clip.text;
+      document.getElementById('md-toolbar').classList.add('show');
+      document.getElementById('expand-tag-row').style.display = 'flex';
+      document.getElementById('clip-expand-edit-btn').style.display = 'none';
+      const saveBtn = document.getElementById('clip-expand-save-btn');
+      saveBtn.style.display = ''; saveBtn.textContent = 'Save'; saveBtn.disabled = false;
+      document.getElementById('clip-expand-cancel-btn').style.display = '';
+      mdPreviewing = false;
+      setExpandPreview(true);   // render + make contenteditable
+      expandDirty = false;
 
       const copyBtn = document.getElementById('clip-expand-copy-btn');
-      copyBtn.textContent = 'Copy';
-      copyBtn.classList.remove('copied');
+      copyBtn.textContent = 'Copy'; copyBtn.classList.remove('copied');
       document.getElementById('clip-expand-save-status').style.opacity = '0';
       document.getElementById('clip-expand-backdrop').classList.add('open');
     }
 
-    function setExpandEditMode(editing) {
-      const pre     = document.getElementById('clip-expand-pre');
-      const ta      = document.getElementById('clip-expand-ta');
-      const toolbar = document.getElementById('md-toolbar');
-      const toggle  = document.getElementById('md-preview-toggle');
-      const editBtn   = document.getElementById('clip-expand-edit-btn');
-      const saveBtn   = document.getElementById('clip-expand-save-btn');
-      const cancelBtn = document.getElementById('clip-expand-cancel-btn');
-      const clip = config.clips.find(c => c.id === expandClipId);
-
-      // Always reset the preview toggle to "raw editing" baseline.
-      mdPreviewing = false;
-      toggle.textContent = '👁 Preview';
-      toggle.classList.remove('active');
-
-      if (editing) {
-        ta.value = clip ? clip.text : '';
-        ta.dataset.original = ta.value;
-        toolbar.classList.add('show');
-        pre.style.display  = 'none';
-        ta.style.display   = '';
-        editBtn.style.display   = 'none';
-        saveBtn.textContent = 'Save';
-        saveBtn.disabled = false;
-        saveBtn.style.display   = '';
-        cancelBtn.style.display = '';
-        ta.focus();
-      } else {
-        pre.innerHTML = renderMarkdown(clip ? clip.text : '');
-        toolbar.classList.remove('show');
-        pre.style.display  = '';
-        ta.style.display   = 'none';
-        editBtn.style.display   = '';
-        saveBtn.style.display   = 'none';
-        cancelBtn.style.display = 'none';
-      }
+    // Persist current edits (text + tags) only if the user actually changed
+    // something (the markdown round-trip isn't byte-identical, so we never want
+    // to rewrite an untouched note just because it was viewed).
+    function persistExpandClip() {
+      const id = expandClipId;
+      const clip = config.clips.find(c => c.id === id);
+      if (!clip || !expandDirty) return Promise.resolve();
+      const newText = getExpandText();
+      const newTags = expandTags.slice();
+      const tagsChanged = JSON.stringify(newTags) !== JSON.stringify(clip.tags || []);
+      if (newText === clip.text && !tagsChanged) { expandDirty = false; return Promise.resolve(); }
+      return fetch('api?action=update-clip&id=' + encodeURIComponent(id), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newText, tags: newTags })
+      })
+      .then(r => { if (!r.ok) throw new Error('Server returned ' + r.status); return r.json(); })
+      .then(data => {
+        if (!data.ok) throw new Error(data.error || 'Unknown error');
+        clip.text = newText;
+        if (newTags.length) clip.tags = newTags; else delete clip.tags;
+        expandDirty = false;
+        renderClips();
+      });
     }
 
-    function toggleClipExpandEdit()  { setExpandEditMode(true); }
-    function cancelClipExpandEdit()  { setExpandEditMode(false); }
+    function saveClipExpand() {
+      const saveBtn = document.getElementById('clip-expand-save-btn');
+      const status  = document.getElementById('clip-expand-save-status');
+      saveBtn.textContent = 'Saving…'; saveBtn.disabled = true; status.style.opacity = '0';
+      persistExpandClip().then(() => {
+        const clip = config.clips.find(c => c.id === expandClipId);
+        if (clip) {
+          const ta = document.getElementById('clip-expand-ta');
+          ta.value = clip.text; ta.dataset.original = clip.text;
+          if (mdPreviewing) document.getElementById('clip-expand-pre').innerHTML = renderMarkdown(clip.text);
+        }
+        saveBtn.textContent = 'Save'; saveBtn.disabled = false;
+        status.textContent = 'Saved!'; status.style.color = 'var(--accent)'; status.style.opacity = '1';
+        setTimeout(() => { status.style.opacity = '0'; }, 2500);
+      })
+      .catch(err => {
+        console.error('save clip error:', err);
+        saveBtn.textContent = 'Save'; saveBtn.disabled = false;
+        status.textContent = '⚠ ' + err.message; status.style.color = 'var(--danger)'; status.style.opacity = '1';
+        setTimeout(() => { status.style.opacity = '0'; }, 4000);
+      });
+    }
+
+    // "Edit" is a no-op now (the modal always opens editable). Kept for the
+    // legacy button, which is hidden.
+    function toggleClipExpandEdit() {}
+
+    // Cancel: discard unsaved edits and close (no auto-save).
+    function cancelClipExpandEdit() {
+      const clip = config.clips.find(c => c.id === expandClipId);
+      if (clip) { expandTags = (clip.tags || []).slice(); document.getElementById('clip-expand-ta').value = clip.text; mdPreviewing = false; }
+      document.getElementById('clip-expand-backdrop').classList.remove('open');
+      expandClipId = null;
+    }
 
     function closeClipExpand() {
+      // Auto-save pending edits so closing (X / click-away) never loses work.
+      persistExpandClip().catch(() => {});
       document.getElementById('clip-expand-backdrop').classList.remove('open');
       expandClipId = null;
     }
 
     function copyClipExpand() {
-      // Copy the raw text (from clip data), not the linkified HTML
-      const clip = config.clips.find(c => c.id === expandClipId);
-      const text = clip ? clip.text : document.getElementById('clip-expand-ta').value;
-      copyText(text).then(() => {
+      copyText(getExpandText()).then(() => {
         const btn = document.getElementById('clip-expand-copy-btn');
-        btn.textContent = 'Copied!';
-        btn.classList.add('copied');
+        btn.textContent = 'Copied!'; btn.classList.add('copied');
         setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
-      });
-    }
-
-    function saveClipExpand() {
-      const ta      = document.getElementById('clip-expand-ta');
-      const saveBtn = document.getElementById('clip-expand-save-btn');
-      const status  = document.getElementById('clip-expand-save-status');
-      const newText = ta.value;
-      const clip    = config.clips.find(c => c.id === expandClipId);
-      if (!clip) return;
-
-      // Visual: show Saving…
-      saveBtn.textContent = 'Saving…';
-      saveBtn.disabled = true;
-      status.style.opacity = '0';
-
-      fetch('api?action=update-clip&id=' + encodeURIComponent(expandClipId), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: newText })
-      })
-      .then(r => {
-        if (!r.ok) throw new Error('Server returned ' + r.status);
-        return r.json();
-      })
-      .then(data => {
-        if (!data.ok) throw new Error(data.error || 'Unknown error');
-        clip.text = newText;
-        setExpandEditMode(false);   // re-renders the markdown view
-        renderClips();
-        status.textContent = 'Saved!';
-        status.style.color = 'var(--accent)';
-        status.style.opacity = '1';
-        setTimeout(() => { status.style.opacity = '0'; }, 2500);
-      })
-      .catch(err => {
-        console.error('save clip error:', err);
-        saveBtn.textContent = 'Save';
-        saveBtn.disabled = false;
-        status.textContent = '⚠ ' + err.message;
-        status.style.color = 'var(--danger)';
-        status.style.opacity = '1';
-        setTimeout(() => { status.style.opacity = '0'; }, 4000);
       });
     }
 
