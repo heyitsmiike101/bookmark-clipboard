@@ -2478,23 +2478,36 @@
       renderClips();
     }
 
-    // ── Clipboard helper (works on plain HTTP too) ─────
+    // ── Clipboard helper (works on plain HTTP and iOS too) ─────
+    // The async Clipboard API only exists in secure contexts (https / localhost),
+    // so over plain http://<host> we fall back to a selection + execCommand copy
+    // that also works on iOS Safari.
     function copyText(text) {
       if (navigator.clipboard && window.isSecureContext) {
-        return navigator.clipboard.writeText(text);
+        return navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
       }
-      // execCommand fallback for HTTP
+      return legacyCopy(text);
+    }
+    function legacyCopy(text) {
       return new Promise((resolve, reject) => {
         const ta = document.createElement('textarea');
         ta.value = text;
-        ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0';
+        ta.readOnly = false;
+        ta.contentEditable = 'true';
+        // Keep it on-screen but invisible; font-size:16px stops iOS from zooming.
+        ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;margin:0;border:0;font-size:16px;opacity:0';
         document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        try {
-          document.execCommand('copy') ? resolve() : reject();
-        } catch(e) { reject(e); }
+        const range = document.createRange();
+        range.selectNodeContents(ta);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        ta.setSelectionRange(0, text.length);   // iOS needs this
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+        sel.removeAllRanges();
         document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('Copy failed'));
       });
     }
 
@@ -2667,14 +2680,18 @@
               </span>
               <span class="tile-copied-flash" style="opacity:0">Copied!</span>`;
             wrapper.onclick = () => {
+              const flash = tile.querySelector('.tile-copied-flash');
               copyText(info).then(() => {
-                const flash = tile.querySelector('.tile-copied-flash');
+                flash.textContent = 'Copied!';
                 tile.classList.add('info-copied');
                 flash.style.opacity = '1';
                 setTimeout(() => {
                   flash.style.opacity = '0';
                   tile.classList.remove('info-copied');
                 }, 900);
+              }).catch(() => {
+                // Guaranteed fallback: show the value so it can be copied manually.
+                window.prompt('Copy this value:', info);
               });
             };
           } else {
