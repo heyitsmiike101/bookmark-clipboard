@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bookmark Dashboard — API & Automation Docs</title>
+<title>Bookmark Clipboard — API & Automation Docs</title>
 <style>
   :root {
     --bg: #121212;
@@ -76,12 +76,13 @@
 <body>
 <div class="layout">
   <nav>
-    <h1>Bookmark Dashboard</h1>
+    <h1>Bookmark Clipboard</h1>
     <div class="tag">API &amp; Automation Reference</div>
     <a href="index.html">← Back to dashboard</a>
 
     <div class="grp">Overview</div>
     <a href="#intro">Introduction</a>
+    <a href="#mcp">MCP server (for AI)</a>
     <a href="#model">Data model</a>
     <a href="#locator">Locating a bookmark</a>
     <a href="#ai">Using with an AI agent</a>
@@ -137,6 +138,72 @@
     <div class="note">Every change is written to <code>config.json</code> and bumps a <code>version</code> counter.
     Poll <a href="#get-version">GET&nbsp;version</a> to detect changes made by other clients.</div>
 
+    <div class="note"><strong>Driving this from an AI assistant?</strong> Use the bundled
+    <a href="#mcp">MCP server</a> instead of the raw HTTP API — it exposes clean, named tools so the
+    model doesn't have to construct <code>?action=</code> URLs.</div>
+
+    <!-- ───────────────────────── MCP ───────────────────────── -->
+    <h2 id="mcp">MCP server (for AI assistants)</h2>
+    <p class="lead">For AI assistants (Claude Desktop, Claude Code, and other
+    <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">Model Context Protocol</a>
+    clients), the repo ships a small <strong>MCP server</strong> that wraps this API in clean, named
+    tools — <code>add_bookmark</code>, <code>move_bookmark</code>, <code>add_text_clip</code>, … — each
+    with a schema. It's the recommended way to let a model work with the dashboard; the raw HTTP API
+    below is still there for scripts and non-MCP clients.</p>
+
+    <p>It lives in <code>mcp/mcp-server.js</code> — zero-dependency Node.js (built-ins only), speaking
+    JSON-RPC over stdio. It runs on the machine with your AI client and points at your dashboard via
+    one environment variable:</p>
+
+    <table>
+      <tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>BOOKMARK_API_URL</code></td><td><code>http://localhost:3000</code></td><td>Base URL of your running dashboard (no <code>/api</code>).</td></tr>
+    </table>
+
+    <h3>Claude Desktop</h3>
+    <p class="desc">Add to <code>claude_desktop_config.json</code> (macOS:
+    <code>~/Library/Application&nbsp;Support/Claude/claude_desktop_config.json</code>), then restart:</p>
+<pre><code>{
+  "mcpServers": {
+    "bookmark-clipboard": {
+      "command": "node",
+      "args": ["/absolute/path/to/bookmark-clipboard/mcp/mcp-server.js"],
+      "env": { "BOOKMARK_API_URL": "http://debian-docker:6970" }
+    }
+  }
+}</code></pre>
+
+    <h3>Claude Code</h3>
+<pre><code>claude mcp add bookmark-clipboard \
+  -e BOOKMARK_API_URL=http://debian-docker:6970 \
+  -- node /absolute/path/to/bookmark-clipboard/mcp/mcp-server.js</code></pre>
+
+    <h3>Any other MCP client</h3>
+    <p class="desc">Point it at this stdio command:</p>
+<pre><code>BOOKMARK_API_URL=http://debian-docker:6970 node /path/to/mcp/mcp-server.js</code></pre>
+
+    <h3>Tools</h3>
+    <table>
+      <tr><th>Tool</th><th>Does</th></tr>
+      <tr><td><code>list_bookmarks</code></td><td>List categories + bookmarks (with ids). Call before editing/moving/deleting.</td></tr>
+      <tr><td><code>add_bookmark</code></td><td>Add a link tile (<code>url</code>) or click-to-copy info tile (<code>info</code>).</td></tr>
+      <tr><td><code>update_bookmark</code></td><td>Edit name / url / info / ping.</td></tr>
+      <tr><td><code>delete_bookmark</code></td><td>Remove a bookmark.</td></tr>
+      <tr><td><code>move_bookmark</code></td><td>Move across / within categories.</td></tr>
+      <tr><td><code>reorder_bookmarks</code></td><td>Reorder within a category.</td></tr>
+      <tr><td><code>add_category</code> · <code>rename_category</code> · <code>delete_category</code> · <code>reorder_categories</code></td><td>Manage categories.</td></tr>
+      <tr><td><code>list_clips</code></td><td>List clipboard entries (ids, tags, metadata).</td></tr>
+      <tr><td><code>add_text_clip</code></td><td>Add a text entry (Markdown), optional tags.</td></tr>
+      <tr><td><code>add_file_clip</code></td><td>Add a file from <code>content_text</code> or <code>content_base64</code>.</td></tr>
+      <tr><td><code>update_clip</code></td><td>Edit a clip's text / tags / today-only flag.</td></tr>
+      <tr><td><code>delete_clip</code></td><td>Remove a clip.</td></tr>
+      <tr><td><code>list_tags</code></td><td>All clip tags in use, with counts.</td></tr>
+      <tr><td><code>get_config</code></td><td>Fetch the whole dashboard state.</td></tr>
+    </table>
+    <p class="desc">Bookmark edit/move/delete tools take a <a href="#locator">locator</a> (an
+    <code>id</code>, or <code>category</code> + <code>name</code>/<code>index</code>). Full setup and
+    notes are in <code>mcp/README.md</code> in the repo.</p>
+
     <h2 id="model">Data model</h2>
     <p>The whole dashboard state is one JSON document:</p>
 <pre><code>{
@@ -173,7 +240,9 @@
     <p>A locator that matches nothing returns <code>404</code>.</p>
 
     <h2 id="ai">Using with an AI agent</h2>
-    <p>The API is designed to be driven by an LLM/agent. Recommended loop:</p>
+    <p>The easiest path for an AI assistant is the <a href="#mcp">MCP server</a> (named tools, no URL
+    building). If you're calling the raw HTTP API directly instead, it's designed to be agent-friendly.
+    Recommended loop:</p>
     <ol>
       <li><strong>Read first.</strong> <code>GET /api?action=bookmarks</code> to see current categories, bookmarks and their <code>id</code>s.</li>
       <li><strong>Mutate by <code>id</code>.</strong> Prefer ids returned from the read for edits/moves — robust against duplicate names.</li>
