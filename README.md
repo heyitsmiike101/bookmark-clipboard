@@ -145,12 +145,22 @@ it or let an **AI agent add, remove, reorder and organize bookmarks**.
 in-app **?** Help panel). It documents every action with request/response examples and an AI-agent
 usage guide.
 
-### 🤖 MCP server (recommended for AI assistants)
+### 🤖 Using it with an AI assistant
 
-For AI assistants (Claude Desktop, Claude Code, etc.), use the bundled **MCP server** instead of
-the raw HTTP API — it exposes clean, well-described tools (`add_bookmark`, `add_text_clip`,
-`move_bookmark`, …) so the model doesn't have to construct `?action=` URLs. It's zero-dependency
-Node and points at your running dashboard. See **[`mcp/README.md`](mcp/README.md)** for setup.
+Two ways, pick either:
+
+- **MCP server (recommended)** — the bundled server exposes clean, schema-checked tools
+  (`add_bookmark`, `add_text_clip`, `move_bookmark`, …) so the model never builds `?action=` URLs.
+  Zero-dependency Node, points at your running dashboard. Setup for Claude Desktop / **Claude Code** /
+  other clients is in **[`mcp/README.md`](mcp/README.md)**.
+- **No MCP, raw API** — the dashboard serves an LLM-readable manual at **`/llms.txt`** and a JSON
+  index at **`/api?action=help`**. Point the model at the guide once and it can call the API with
+  `curl`. In **Claude Code**, add a line to your project's `CLAUDE.md` (or just say it):
+
+  ```
+  Bookmark Clipboard API — base http://debian-docker:6970
+  Read http://debian-docker:6970/llms.txt for the full guide, then use curl.
+  ```
 
 ### HTTP API
 

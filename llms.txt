@@ -1,0 +1,97 @@
+# Bookmark Clipboard — API guide for LLMs
+
+> A self-hosted dashboard of bookmarks (organized in categories) plus a shared
+> clipboard of text notes and files. Everything is controllable over a small HTTP
+> API. This file tells an AI/agent how to use that API directly — no SDK or MCP
+> server required. (An MCP server also ships in the repo under `mcp/` if you
+> prefer named tools; a human-friendly reference is at `/docs.html`.)
+
+## Conventions
+
+- Base URL: the origin serving this file (e.g. `http://HOST:PORT`). All calls go to `BASE/api?action=NAME`.
+- Requests/responses are JSON, except `upload` (multipart) and `download` (binary).
+- Errors: non-2xx responses return `{ "error": "message" }`.
+- Auth: none — intended for a trusted LAN.
+- Every write bumps a `version` counter; poll `version` to detect external changes.
+
+## Recommended workflow
+
+1. Read current state first: `GET /api?action=bookmarks` and/or `GET /api?action=clips`.
+2. Mutate by `id` (bookmarks are `bm_…`, clips are `clip_…`) — more reliable than names.
+3. Re-read if you need fresh ids/indices after multi-step changes.
+
+## Data model
+
+- `bookmarks` is an object: category name -> array of bookmarks. Category order = key order; bookmark order = array order.
+- A bookmark is EITHER a link tile `{ id, name, url, ping? }` OR an info (click-to-copy) tile `{ id, name, info }` — never both. `ping:true` shows an online/offline dot (link tiles only).
+- A clip is `{ id, type:"text"|"file", ..., tags?:[...], todayOnly?, createdAt }`. Text clips have `text` (Markdown); file clips have `filename`, `originalName`, `size`. `todayOnly:true` auto-deletes after today.
+- Tags: any clip may carry a `tags` array (0..unlimited strings), de-duplicated case-insensitively.
+
+## Locating a bookmark (for update/delete/move)
+
+Provide ONE of: `id` (best); or `category` + `index` (0-based); or `category` + `name` (first match). No match -> 404.
+
+## Actions
+
+### Read
+- `GET /api?action=bookmarks` -> `{ bookmarks, version }`
+- `GET /api?action=clips` -> `{ clips, version }`
+- `GET /api?action=tags` -> `{ tags:[{name,count}], version }`
+- `GET /api?action=config` -> full `{ bookmarks, clips, version }`
+- `GET /api?action=version` -> `{ version }`
+- `GET /api?action=health` -> runtime/storage diagnostics
+- `GET /api?action=help` -> pointers to this file + docs + the action list
+- `GET /api?action=download&filename=STORED&original=NAME` -> file bytes
+
+### Bookmarks (JSON body via POST)
+- `add-bookmark` `{ category, name, url? , info?, ping?, index? }` — provide url OR info. Creates the category if missing.
+- `update-bookmark` `{ <locator>, fields:{ name?, url?, info?, ping? } }` — setting info converts to an info tile; setting url converts to a link tile.
+- `delete-bookmark` `{ <locator> }` (POST or DELETE)
+- `move-bookmark` `{ <locator>, toCategory?, toIndex? }`
+- `reorder-bookmarks` `{ category, order:[ids-or-names] }` (omitted keep original order at the end)
+- `bookmarks` `{ "Cat":[ {name,url}, ... ] }` — bulk replace the whole tree (ids preserved/assigned)
+
+### Categories
+- `add-category` `{ category, index? }`
+- `rename-category` `{ category, newName }`
+- `delete-category` `{ category }` (POST or DELETE) — also deletes its bookmarks
+- `reorder-categories` `{ order:[names] }`
+
+### Clipboard
+- `clip` (alias `add-clip`) `{ text, tags?, todayOnly? }` -> created text clip
+- `add-file` `{ filename, contentText? | contentBase64?, tags?, todayOnly? }` -> file clip from JSON (no multipart)
+- `upload` (multipart/form-data) fields: `file`, `todayOnly` (1/0) -> file clip
+- `update-clip` `{ id, text?, tags?, todayOnly? }` (id may also be `?id=` in the query) -> `{ ok, clip }`; pass `tags:[]` to clear tags
+- `delete-clip` (alias `clip`) `{ id }` (POST or DELETE) — removes the stored file too
+
+## Examples
+
+```
+BASE="http://HOST:PORT"
+
+# see everything
+curl "$BASE/api?action=bookmarks"
+curl "$BASE/api?action=clips"
+
+# add a bookmark (link tile) and an info tile (click-to-copy value)
+curl -X POST "$BASE/api?action=add-bookmark" -H "Content-Type: application/json" \
+  -d '{"category":"AI Tools","name":"Claude","url":"https://claude.ai","ping":true}'
+curl -X POST "$BASE/api?action=add-bookmark" -H "Content-Type: application/json" \
+  -d '{"category":"Servers","name":"NAS IP","info":"192.168.1.20"}'
+
+# edit / move / delete a bookmark by id (get ids from action=bookmarks)
+curl -X POST "$BASE/api?action=update-bookmark" -H "Content-Type: application/json" \
+  -d '{"id":"bm_abc","fields":{"name":"Claude (Opus)","ping":false}}'
+curl -X POST "$BASE/api?action=move-bookmark" -H "Content-Type: application/json" \
+  -d '{"id":"bm_abc","toCategory":"Favorites","toIndex":0}'
+curl -X POST "$BASE/api?action=delete-bookmark" -H "Content-Type: application/json" -d '{"id":"bm_abc"}'
+
+# clipboard: add text (Markdown ok) with tags, add a file from JSON, edit, delete
+curl -X POST "$BASE/api?action=clip" -H "Content-Type: application/json" \
+  -d '{"text":"# Note\n\n- item","tags":["work"]}'
+curl -X POST "$BASE/api?action=add-file" -H "Content-Type: application/json" \
+  -d '{"filename":"summary.txt","contentText":"Generated by an agent."}'
+curl -X POST "$BASE/api?action=update-clip&id=clip_abc" -H "Content-Type: application/json" \
+  -d '{"tags":["work","urgent"]}'
+curl -X POST "$BASE/api?action=delete-clip" -H "Content-Type: application/json" -d '{"id":"clip_abc"}'
+```

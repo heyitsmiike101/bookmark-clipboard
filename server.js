@@ -445,6 +445,23 @@ async function handleApi(req, res, urlObj) {
     return;
   }
 
+  // ── Self-description: point an agent at the human + LLM docs and list actions.
+  if (method === 'GET' && action === 'help') {
+    sendJson(res, 200, {
+      name: 'Bookmark Clipboard API',
+      docs: '/docs.html',
+      llms: '/llms.txt',
+      hint: 'All actions are GET/POST/DELETE /api?action=NAME with a JSON body. Read /llms.txt for a full LLM-readable guide.',
+      actions: {
+        read: ['bookmarks', 'clips', 'tags', 'config', 'version', 'health', 'download'],
+        bookmarks: ['add-bookmark', 'update-bookmark', 'delete-bookmark', 'move-bookmark', 'reorder-bookmarks', 'bookmarks'],
+        categories: ['add-category', 'rename-category', 'delete-category', 'reorder-categories'],
+        clipboard: ['clip', 'add-file', 'upload', 'update-clip', 'delete-clip'],
+      },
+    });
+    return;
+  }
+
   // ── Bookmarks: read ─────────────────────────────────────────────────────
   if (method === 'GET' && action === 'bookmarks') {
     sendJson(res, 200, { bookmarks: config.bookmarks, version: config.version || 0 });

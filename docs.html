@@ -204,6 +204,25 @@
     <code>id</code>, or <code>category</code> + <code>name</code>/<code>index</code>). Full setup and
     notes are in <code>mcp/README.md</code> in the repo.</p>
 
+    <h3>No MCP server? An AI can read the API directly</h3>
+    <p class="desc">You don't need the MCP script for a model to use this. The dashboard serves a
+    concise, LLM-readable manual and a discovery endpoint:</p>
+    <table>
+      <tr><td><code><a href="llms.txt" target="_blank" rel="noopener">/llms.txt</a></code></td><td>Full API guide written for an LLM — conventions, every action with parameters, and copy-paste examples.</td></tr>
+      <tr><td><code>/api?action=help</code></td><td>JSON index: pointers to the docs plus the list of all actions.</td></tr>
+    </table>
+
+    <p class="desc"><strong>Using it in Claude Code (without the MCP server):</strong> point Claude at
+    the guide once and let it call the API with <code>curl</code>. Either paste the base URL and tell
+    it to read <code>/llms.txt</code>, or add a line to your project's <code>CLAUDE.md</code>:</p>
+<pre><code># CLAUDE.md
+Bookmark Clipboard dashboard API — base URL http://debian-docker:6970
+Read http://debian-docker:6970/llms.txt for the full API guide, then call
+the endpoints with curl (e.g. curl "$BASE/api?action=bookmarks").</code></pre>
+    <p class="desc">Claude Code can also fetch the guide on demand (WebFetch / curl) — e.g. just say
+    <em>"read http://debian-docker:6970/llms.txt and add a bookmark for &hellip;"</em>. Use the MCP
+    server instead when you want first-class, schema-checked tools rather than free-form HTTP calls.</p>
+
     <h2 id="model">Data model</h2>
     <p>The whole dashboard state is one JSON document:</p>
 <pre><code>{
