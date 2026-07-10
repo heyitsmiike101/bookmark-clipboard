@@ -145,6 +145,15 @@ it or let an **AI agent add, remove, reorder and organize bookmarks**.
 in-app **?** Help panel). It documents every action with request/response examples and an AI-agent
 usage guide.
 
+### 🤖 MCP server (recommended for AI assistants)
+
+For AI assistants (Claude Desktop, Claude Code, etc.), use the bundled **MCP server** instead of
+the raw HTTP API — it exposes clean, well-described tools (`add_bookmark`, `add_text_clip`,
+`move_bookmark`, …) so the model doesn't have to construct `?action=` URLs. It's zero-dependency
+Node and points at your running dashboard. See **[`mcp/README.md`](mcp/README.md)** for setup.
+
+### HTTP API
+
 All endpoints live under one path, `/api`, with the operation chosen by an `?action=` query
 parameter (e.g. `/api?action=config`).
 

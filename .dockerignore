@@ -9,3 +9,6 @@ README.md
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# MCP server (runs separately, not part of the dashboard image)
+mcp/
