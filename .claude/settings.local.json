@@ -7,7 +7,14 @@
       "Bash(git init *)",
       "Bash(git config *)",
       "Bash(git add *)",
-      "Bash(git commit -m 'Initial commit: Bookmark Dashboard with clipboard sharing *)"
+      "Bash(git commit -m 'Initial commit: Bookmark Dashboard with clipboard sharing *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(git checkout *)",
+      "Bash(git commit *)",
+      "Bash(node -c server.js)"
     ]
   }
 }

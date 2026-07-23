@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Bookmarks</title>
   <script>
-    // Apply the saved theme before first paint to avoid a flash of the default.
+    // Apply the saved theme + layout before first paint to avoid a flash of the default.
     try { var _t = localStorage.getItem('bookmark-theme');
       if (_t && _t !== 'default') document.documentElement.setAttribute('data-theme', _t); } catch (e) {}
+    try { var _l = localStorage.getItem('bookmark-layout');
+      if (_l === 'split') document.documentElement.setAttribute('data-layout', 'split'); } catch (e) {}
   </script>
   <style>
     /* ===== Theme palettes ===== */
@@ -208,6 +210,65 @@
     .config-category.dragging, .config-bm-row.dragging { opacity: 0.45; }
     .config-bookmarks { min-height: 8px; }
 
+    /* ===== Split-screen layout (opt-in, saved per device) =================
+       Classic mode: the wrappers are transparent (display:contents) so the
+       page flows exactly as before. Split mode: fill the viewport with the
+       clipboard on the left and a compact bookmark list on the right. */
+    #main-cols, #col-clip, #col-book { display: contents; }
+
+    html[data-layout="split"] body {
+      max-width: none;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 1.25rem 1.5rem;
+    }
+    html[data-layout="split"] .page-header { flex: none; margin-bottom: 1rem; }
+
+    html[data-layout="split"] #main-cols {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1.25rem;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    html[data-layout="split"] #col-clip,
+    html[data-layout="split"] #col-book {
+      display: block;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    /* Left column: clipboard fills its column instead of being centered. */
+    html[data-layout="split"] #clip-section { max-width: none; margin: 0; }
+
+    /* Right column: compact, single-column list so everything is visible. */
+    html[data-layout="split"] .search-row { margin: 0 0 0.75rem; }
+    html[data-layout="split"] #lastChecked { margin: 0 0 0.75rem; }
+    html[data-layout="split"] .group { margin-bottom: 1.5rem; }
+    html[data-layout="split"] .group-header { text-align: left; margin-bottom: 0.5rem; }
+    html[data-layout="split"] .grid {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+      max-width: none;
+      padding-top: 0.5rem;
+    }
+    html[data-layout="split"] .tile {
+      padding: 0.55rem 0.8rem;
+      text-align: left;
+      border-radius: 7px;
+    }
+    html[data-layout="split"] .tile:hover { transform: none; }
+
+    @media (max-width: 768px) {
+      html[data-layout="split"] body { height: auto; overflow: auto; display: block; }
+      html[data-layout="split"] #main-cols { display: block; }
+      html[data-layout="split"] #col-clip,
+      html[data-layout="split"] #col-book { overflow: visible; }
+    }
+
     * { box-sizing: border-box; }
 
     body {
@@ -340,7 +401,10 @@
       align-items: center;
       justify-content: space-between;
       margin-bottom: 1rem;
+      cursor: pointer;
+      user-select: none;
     }
+    .clip-section-header:hover #clip-toggle { color: var(--accent); }
 
     #clip-section h2 {
       color: var(--accent);
@@ -1256,6 +1320,8 @@
     .clip-expand-secondary-btn:hover { border-color: var(--accent); color: var(--accent); }
     .clip-expand-secondary-btn.save-mode { border-color: var(--border); color: var(--accent); }
     .clip-expand-secondary-btn.save-mode:hover { background: var(--accent); color: #000; }
+    .clip-expand-secondary-btn.danger-mode { border-color: var(--border-2); color: var(--danger-text); }
+    .clip-expand-secondary-btn.danger-mode:hover { border-color: var(--danger); background: var(--danger); color: #fff; }
 
     /* ── Config Modal ── */
     #modal-backdrop {
@@ -1493,11 +1559,15 @@
   <!-- Error Display -->
   <div id="load-error" style="display:none;background:var(--danger-bg);border:1px solid var(--danger);border-radius:8px;color:var(--danger-text);font-family:monospace;font-size:0.85rem;margin:0 auto 1.5rem;max-width:800px;padding:1rem;white-space:pre-wrap;word-break:break-all;"></div>
 
+  <!-- Main columns wrapper (drives the optional split-screen layout) -->
+  <div id="main-cols">
+  <div id="col-clip">
+
   <!-- Clipboard Section -->
   <div id="clip-section">
-    <div class="clip-section-header">
+    <div class="clip-section-header" onclick="toggleClipboard()" title="Click to collapse / expand">
       <h2>📋 Clipboard</h2>
-      <button id="clip-toggle" onclick="toggleClipboard()" title="Collapse / Expand">▼</button>
+      <button id="clip-toggle" title="Collapse / Expand">▼</button>
     </div>
     <div id="clip-body">
       <div id="upload-queue"></div>
@@ -1530,7 +1600,7 @@
         <button class="tag-mode-btn" id="tag-clear-btn" onclick="clearTagFilters()"
                 title="Clear all selected tag filters" style="display:none">✕ Clear</button>
         <button class="tag-mode-btn" id="tag-mode-toggle" onclick="toggleTagMode()"
-                title="Match ANY (or) vs ALL (and) of the selected tags">Match: <span class="tag-mode-val">ANY</span></button>
+                title="Cycle match mode: ANY (or) · ALL (and) · NONE (has none of the selected tags)">Match: <span class="tag-mode-val">ANY</span></button>
       </div>
       <div id="download-bar">
         <button id="download-bar-btn" onclick="downloadSelected()">Download Selected (0)</button>
@@ -1540,6 +1610,9 @@
     </div>
   </div>
 
+  </div><!-- /col-clip -->
+  <div id="col-book">
+
   <!-- Search + Ping Status -->
   <div class="search-row">
     <input type="text" id="search" placeholder="Search bookmarks…">
@@ -1548,6 +1621,9 @@
 
   <!-- Bookmark Container -->
   <div id="bookmarkContainer"></div>
+
+  </div><!-- /col-book -->
+  </div><!-- /main-cols -->
 
   <!-- Mobile Settings Button -->
   <button id="mobile-settings-btn" onclick="openModal()">⚙ Edit Config</button>
@@ -1605,6 +1681,7 @@
         <button id="clip-expand-save-btn" class="clip-expand-secondary-btn save-mode" onclick="saveClipExpand()" style="display:none">Save</button>
         <button id="clip-expand-cancel-btn" class="clip-expand-secondary-btn" onclick="cancelClipExpandEdit()" style="display:none">Cancel</button>
         <span id="clip-expand-save-status" style="font-size:0.8rem;color:var(--accent);opacity:0;transition:opacity 0.3s;margin-left:auto;align-self:center;"></span>
+        <button id="clip-expand-delete-btn" class="clip-expand-secondary-btn danger-mode" onclick="deleteClipExpand()">Delete</button>
       </div>
     </div>
   </div>
@@ -1622,7 +1699,12 @@
           <button type="button" class="theme-btn" data-theme-id="default" onclick="applyTheme('default')">Terminal</button>
           <button type="button" class="theme-btn" data-theme-id="midnight" onclick="applyTheme('midnight')">Midnight</button>
         </div>
-        <span class="appearance-hint">Drag ⠿ to reorder categories &amp; bookmarks</span>
+        <span class="appearance-label">Layout</span>
+        <div class="theme-switch">
+          <button type="button" class="theme-btn layout-btn" data-layout-id="default" onclick="applyLayout('default')">Classic</button>
+          <button type="button" class="theme-btn layout-btn" data-layout-id="split" onclick="applyLayout('split')">Split</button>
+        </div>
+        <span class="appearance-hint">Layout is saved on this device only</span>
       </div>
       <div id="config-categories"></div>
       <button class="btn-add-category" onclick="addCategoryRow()">+ Add Category</button>
@@ -1886,7 +1968,8 @@
         `<button class="tag-filter-btn${selectedTags.has(t.key) ? ' active' : ''}" data-tag="${escAttr(t.key)}">` +
         `${escapeHtml(t.name)}<span class="tag-count">${t.count}</span></button>`
       ).join('');
-      document.querySelector('#tag-mode-toggle .tag-mode-val').textContent = tagMode === 'and' ? 'ALL' : 'ANY';
+      document.querySelector('#tag-mode-toggle .tag-mode-val').textContent =
+        tagMode === 'and' ? 'ALL' : tagMode === 'none' ? 'NONE' : 'ANY';
       // "Clear" only appears when at least one tag filter is active.
       document.getElementById('tag-clear-btn').style.display = selectedTags.size ? '' : 'none';
     }
@@ -1896,7 +1979,8 @@
       renderClips();
     }
     function toggleTagMode() {
-      tagMode = tagMode === 'or' ? 'and' : 'or';
+      // Cycle through the three match modes: ANY (or) → ALL (and) → NONE.
+      tagMode = tagMode === 'or' ? 'and' : tagMode === 'and' ? 'none' : 'or';
       persistTagState();
       renderClips();
     }
@@ -1917,9 +2001,9 @@
     function clipMatchesFilter(clip) {
       if (!selectedTags.size) return true;
       const keys = [...selectedTags];
-      return tagMode === 'and'
-        ? keys.every(k => clipHasTag(clip, k))
-        : keys.some(k => clipHasTag(clip, k));
+      if (tagMode === 'and')  return keys.every(k => clipHasTag(clip, k));
+      if (tagMode === 'none') return keys.every(k => !clipHasTag(clip, k));
+      return keys.some(k => clipHasTag(clip, k));
     }
     function ensureClipVisible(clip) {
       if (selectedTags.size && !clipMatchesFilter(clip)) {
@@ -1934,7 +2018,7 @@
       // by ensureClipVisible(), so persisting the selection is safe.
       try {
         const m = localStorage.getItem('clip-tag-mode');
-        if (m === 'and' || m === 'or') tagMode = m;
+        if (m === 'and' || m === 'or' || m === 'none') tagMode = m;
         const sel = JSON.parse(localStorage.getItem('clip-selected-tags') || '[]');
         if (Array.isArray(sel)) sel.forEach(k => selectedTags.add(String(k).toLowerCase()));
       } catch (e) {}
@@ -2423,6 +2507,18 @@
       expandClipId = null;
     }
 
+    // Delete the note being edited straight from the modal.
+    function deleteClipExpand() {
+      const id = expandClipId;
+      if (!id) return;
+      if (!confirm('Delete this note? This cannot be undone.')) return;
+      // Discard any pending edits so closing doesn't try to re-save a deleted note.
+      expandDirty = false;
+      document.getElementById('clip-expand-backdrop').classList.remove('open');
+      expandClipId = null;
+      deleteClip(id);
+    }
+
     function copyClipExpand() {
       copyText(getExpandText()).then(() => {
         const btn = document.getElementById('clip-expand-copy-btn');
@@ -2557,15 +2653,8 @@
       config.clips.filter(clip => {
         if (clipFilter === 'text'  && clip.type === 'file') return false;
         if (clipFilter === 'files' && clip.type !== 'file') return false;
-        if (selectedTags.size) {
-          if (tagMode === 'and') {
-            for (const k of selectedTags) if (!clipHasTag(clip, k)) return false;
-          } else {
-            let any = false;
-            for (const k of selectedTags) if (clipHasTag(clip, k)) { any = true; break; }
-            if (!any) return false;
-          }
-        }
+        // Tag filtering (ANY / ALL / NONE) — shared with clipMatchesFilter().
+        if (!clipMatchesFilter(clip)) return false;
         return true;
       }).forEach(clip => {
         const card = document.createElement('div');
@@ -2792,6 +2881,19 @@
         b.classList.toggle('active', b.dataset.themeId === id));
     }
 
+    // ── Layout preference (classic vs split-screen), saved per device ──
+    const LAYOUT_KEY = 'bookmark-layout';
+    function getLayoutPref() {
+      try { return localStorage.getItem(LAYOUT_KEY) || 'default'; } catch (e) { return 'default'; }
+    }
+    function applyLayout(id) {
+      if (id === 'split') document.documentElement.setAttribute('data-layout', 'split');
+      else document.documentElement.removeAttribute('data-layout');
+      try { localStorage.setItem(LAYOUT_KEY, id); } catch (e) {}
+      document.querySelectorAll('.layout-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.layoutId === id));
+    }
+
     // ── Drag-to-reorder (categories & bookmarks in the Edit Config modal) ──
     function setupConfigReorder() {
       const modal = document.getElementById('config-modal');
@@ -2839,7 +2941,8 @@
 
     function openModal() {
       renderConfigModal();
-      applyTheme(getThemePref()); // sync theme-button active state
+      applyTheme(getThemePref());   // sync theme-button active state
+      applyLayout(getLayoutPref()); // sync layout-button active state
       document.getElementById('modal-backdrop').classList.add('open');
     }
 
@@ -2980,6 +3083,7 @@
       });
 
       applyTheme(getThemePref());
+      applyLayout(getLayoutPref());
       setupConfigReorder();
       initTags();
       loadConfig();

@@ -1,0 +1,1 @@
+{"version":"0.0.1","configurations":[{"name":"bookmark-revamp","runtimeExecutable":"sh","runtimeArgs":["-c","DATA_DIR=/tmp/bm_revamp PORT=3013 node server.js"],"port":3013}]}
