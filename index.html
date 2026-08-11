@@ -2586,23 +2586,21 @@
     }
     function legacyCopy(text) {
       return new Promise((resolve, reject) => {
+        const active = document.activeElement;
         const ta = document.createElement('textarea');
         ta.value = text;
-        ta.readOnly = false;
-        ta.contentEditable = 'true';
-        // Keep it on-screen but invisible; font-size:16px stops iOS from zooming.
+        // Must be IN the viewport (iOS won't select an off-screen field),
+        // focusable, NOT readonly, and 16px so iOS doesn't zoom. opacity:0 hides it.
         ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;margin:0;border:0;font-size:16px;opacity:0';
+        ta.setAttribute('aria-hidden', 'true');
         document.body.appendChild(ta);
-        const range = document.createRange();
-        range.selectNodeContents(ta);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-        ta.setSelectionRange(0, text.length);   // iOS needs this
+        ta.focus();
+        ta.select();
+        try { ta.setSelectionRange(0, text.length); } catch (e) {}   // iOS
         let ok = false;
         try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
-        sel.removeAllRanges();
         document.body.removeChild(ta);
+        if (active && typeof active.focus === 'function') { try { active.focus(); } catch (e) {} }
         ok ? resolve() : reject(new Error('Copy failed'));
       });
     }
